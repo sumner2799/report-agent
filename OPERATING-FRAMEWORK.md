@@ -85,8 +85,21 @@ For existing players in the dataset:
 ---
 
 ## Data Expectations
-*To be clarified:*
-- How you'll provide data to the repo
-- File formats and structure conventions
-- Frequency of updates
+
+**Frequency:** Weekly  
+**Format:** Statcast CSV (see [Data Format Spec](.system/DATA_FORMAT.md))  
+**Location:** Place files in `data/raw/` with naming convention `statcast_[START_DATE]_[END_DATE].csv`  
+**Processing:** Run pipeline with `Rscript scripts/process_statcast.R` (or VS Code task)
+
+---
+
+## System Implementation
+
+✅ **Report Generation System** is now operational. Structure:
+- **Templates** (3 report types) — in `/templates/`
+- **Processing Pipeline** — automated metric calculation in `/scripts/`
+- **Output** — reports generate to `/reports/`
+- **Tracking** — [Report Index](.system/REPORT_INDEX.md) and [Data Format](.system/DATA_FORMAT.md)
+
+**Start here:** [QUICKSTART.md](QUICKSTART.md)
 
