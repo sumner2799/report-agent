@@ -21,14 +21,18 @@ calculate_percentile <- function(value, comparison_vector) {
 
 calculate_pitch_metrics <- function(data, pitch_type) {
   # Returns aggregated metrics for a specific pitch type
-  
   pitch_data <- data %>% filter(pitch_type == !!pitch_type)
   
   metrics <- list(
     usage_pct = (nrow(pitch_data) / nrow(data)) * 100,
-    avg_velocity = mean(pitch_data$release_speed, na.rm = TRUE),
-    velo_min = min(pitch_data$release_speed, na.rm = TRUE),
-    velo_max = max(pitch_data$release_speed, na.rm = TRUE),
+    avg_velocity = round(mean(pitch_data$release_speed, na.rm = TRUE), 1),
+    velo_min = round(min(pitch_data$release_speed, na.rm = TRUE), 1),
+    velo_max = round(max(pitch_data$release_speed, na.rm = TRUE), 1),
+    rel_side = round(mean(pitch_data$release_pos_x, na.rm = TRUE), 2),
+    rel_height = round(mean(pitch_data$release_pos_z, na.rm = TRUE), 2),
+    hb = round(mean(pitch_data$pfx_x, na.rm = TRUE) * 12, 1),
+    vb = round(mean(pitch_data$pfx_z, na.rm = TRUE) * 12, 1),
+    spin = round(mean(pitch_data$release_spin_rate, na.rm = TRUE), 0),
     whiff_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / nrow(pitch_data)) * 100,
     swstr_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / sum(pitch_data$type == "X", na.rm = TRUE)) * 100,
     contact_pct = (sum(pitch_data$type != "B" & pitch_data$type != "X", na.rm = TRUE) / nrow(pitch_data)) * 100,
