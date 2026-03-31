@@ -3,6 +3,8 @@
 
 library(dplyr)
 library(tidyr)
+library(readr)
+library(purrr)
 
 # =============================================================================
 # Percentile Rank Calculation
@@ -16,19 +18,317 @@ calculate_percentile <- function(value, comparison_vector) {
 }
 
 # =============================================================================
+# Percentile Rank Functions for Reports
+# =============================================================================
+
+calculate_pitcher_overall_percentiles <- function(pitcher_metrics, pitcher_id) {
+  # Calculates percentile ranks for pitcher overall performance
+  # pitcher_metrics: list returned from calculate_pitcher_overall_perf (includes swing_pct, strike_pct, etc.)
+  # pitcher_id: ID to identify current pitcher in combined dataset
+  
+  # Load supporting data
+  supporting_data <- read_csv("data/supporting/pitcher_overall_overall.csv", show_col_types = FALSE)
+  
+  # Create current pitcher row with renamed metrics
+  current_pitcher <- tibble(
+    player_name = pitcher_id,
+    pitch_name = "Overall",
+    Pitches = pitcher_metrics$pitches,
+    `Swing%` = pitcher_metrics$swing_pct,
+    `Strike%` = pitcher_metrics$strike_pct,
+    `Zone%` = pitcher_metrics$zone_pct,
+    `Chase%` = pitcher_metrics$chase_pct,
+    `CS%` = pitcher_metrics$cs_pct,
+    `Foul%` = pitcher_metrics$foul_pct,
+    `Whiff%` = pitcher_metrics$whiff_pct,
+    `IZ Whiff` = pitcher_metrics$iz_whiff,
+    `OZ Whiff` = pitcher_metrics$oz_whiff,
+    `GB%` = pitcher_metrics$gb_pct,
+    `HH%` = pitcher_metrics$hh_pct
+  )
+  
+  # Combine with supporting data
+  combined <- rbind(supporting_data, current_pitcher)
+  
+  # Calculate percentile ranks for each metric
+  percentiles <- combined %>%
+    arrange(desc(`Swing%`)) %>%
+    mutate(swing_rank = round(percent_rank(`Swing%`) * 100, 1)) %>%
+    arrange(desc(`Strike%`)) %>%
+    mutate(strike_rank = round(percent_rank(`Strike%`) * 100, 1)) %>%
+    arrange(desc(`Zone%`)) %>%
+    mutate(zone_rank = round(percent_rank(`Zone%`) * 100, 1)) %>%
+    arrange(desc(`Chase%`)) %>%
+    mutate(chase_rank = round(percent_rank(`Chase%`) * 100, 1)) %>%
+    arrange(desc(`CS%`)) %>%
+    mutate(cs_rank = round(percent_rank(`CS%`) * 100, 1)) %>%
+    arrange(desc(`Foul%`)) %>%
+    mutate(foul_rank = round(percent_rank(`Foul%`) * 100, 1)) %>%
+    arrange(desc(`Whiff%`)) %>%
+    mutate(whiff_rank = round(percent_rank(`Whiff%`) * 100, 1)) %>%
+    arrange(desc(`IZ Whiff`)) %>%
+    mutate(iz_whiff_rank = round(percent_rank(`IZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`OZ Whiff`)) %>%
+    mutate(oz_whiff_rank = round(percent_rank(`OZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`GB%`)) %>%
+    mutate(gb_rank = round(percent_rank(`GB%`) * 100, 1)) %>%
+    arrange(desc(`HH%`)) %>%
+    mutate(hh_rank = round(percent_rank(`HH%`) * 100, 1)) %>%
+    filter(pitcher == pitcher_id) %>%
+    select(swing_rank, strike_rank, zone_rank, chase_rank, cs_rank, foul_rank, 
+           whiff_rank, iz_whiff_rank, oz_whiff_rank, gb_rank, hh_rank)
+  
+  return(as.list(percentiles))
+}
+
+calculate_pitcher_pitch_percentiles <- function(pitch_perf, pitcher_id) {
+  # Calculates percentile ranks for pitcher pitch-level performance
+  # pitch_perf: tibble returned from calculate_pitcher_pitch_perf
+  # pitcher_id: ID to identify current pitcher
+  
+  # Load supporting data
+  supporting_data <- read_csv("data/supporting/pitcher_pitch_overall.csv", show_col_types = FALSE)
+  
+  # Rename pitch_perf columns to match supporting data format
+  pitch_perf_renamed <- pitch_perf %>%
+    rename(
+      player_name = pitcher_id,
+      pitch_name = pitch_type,
+      Pitches = pitches,
+      BIP = bip,
+      `Swing%` = swing_pct,
+      `Strike%` = strike_pct,
+      `Zone%` = zone_pct,
+      `Chase%` = chase_pct,
+      `Whiff%` = whiff_pct,
+      `IZ Whiff` = iz_whiff,
+      `OZ Whiff` = oz_whiff,
+      `GB%` = gb_pct,
+      `HH%` = hh_pct
+    ) %>%
+    mutate(pitcher = pitcher_id)
+  
+  # Combine with supporting data
+  combined <- rbind(supporting_data, pitch_perf_renamed)
+  
+  # Calculate percentile ranks by pitch type
+  percentiles <- combined %>%
+    group_by(pitch_name) %>%
+    arrange(desc(`Swing%`), .by_group = TRUE) %>%
+    mutate(swing_rank = round(percent_rank(`Swing%`) * 100, 1)) %>%
+    arrange(desc(`Strike%`), .by_group = TRUE) %>%
+    mutate(strike_rank = round(percent_rank(`Strike%`) * 100, 1)) %>%
+    arrange(desc(`Zone%`), .by_group = TRUE) %>%
+    mutate(zone_rank = round(percent_rank(`Zone%`) * 100, 1)) %>%
+    arrange(desc(`Chase%`), .by_group = TRUE) %>%
+    mutate(chase_rank = round(percent_rank(`Chase%`) * 100, 1)) %>%
+    arrange(desc(`Whiff%`), .by_group = TRUE) %>%
+    mutate(whiff_rank = round(percent_rank(`Whiff%`) * 100, 1)) %>%
+    arrange(desc(`IZ Whiff`), .by_group = TRUE) %>%
+    mutate(iz_whiff_rank = round(percent_rank(`IZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`OZ Whiff`), .by_group = TRUE) %>%
+    mutate(oz_whiff_rank = round(percent_rank(`OZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`GB%`), .by_group = TRUE) %>%
+    mutate(gb_rank = round(percent_rank(`GB%`) * 100, 1)) %>%
+    arrange(desc(`HH%`), .by_group = TRUE) %>%
+    mutate(hh_rank = round(percent_rank(`HH%`) * 100, 1)) %>%
+    ungroup() %>%
+    filter(pitcher == pitcher_id) %>%
+    select(pitch_name, swing_rank, strike_rank, zone_rank, chase_rank, whiff_rank,
+           iz_whiff_rank, oz_whiff_rank, gb_rank, hh_rank)
+  
+  return(percentiles)
+}
+
+calculate_batter_overall_percentiles <- function(batter_metrics, batter_id) {
+  # Calculates percentile ranks for batter overall performance
+  # batter_metrics: list returned from calculate_batter_overall_perf
+  # batter_id: ID to identify current batter
+  
+  # Load supporting data
+  supporting_data <- read_csv("data/supporting/batter_overall_overall.csv", show_col_types = FALSE)
+  
+  # Create current batter row with renamed metrics
+  current_batter <- tibble(
+    last_first_name = batter_id,
+    'BIP.x' = batter_metrics$bip,
+    `Swing%` = batter_metrics$swing_pct,
+    `Chase%` = batter_metrics$chase_pct,
+    `Foul%` = batter_metrics$foul_pct,
+    `Whiff%` = batter_metrics$whiff_pct,
+    `IZ Whiff` = batter_metrics$iz_whiff,
+    `OZ Whiff` = batter_metrics$oz_whiff,
+    `GB%` = batter_metrics$gb_pct,
+    `HH%` = batter_metrics$hh_pct,
+    `SLGcon` = batter_metrics$slg,
+    `Sweet Spot%` = batter_metrics$swspt_pct
+  )
+  
+  # Combine with supporting data
+  combined <- rbind(supporting_data, current_batter)
+  
+  # Calculate percentile ranks for each metric
+  percentiles <- combined %>%
+    arrange(desc(`Swing%`)) %>%
+    mutate(swing_rank = round(percent_rank(`Swing%`) * 100, 1)) %>%
+    arrange(desc(`Chase%`)) %>%
+    mutate(chase_rank = round(percent_rank(`Chase%`) * 100, 1)) %>%
+    arrange(desc(`Foul%`)) %>%
+    mutate(foul_rank = round(percent_rank(`Foul%`) * 100, 1)) %>%
+    arrange(desc(`Whiff%`)) %>%
+    mutate(whiff_rank = round(percent_rank(`Whiff%`) * 100, 1)) %>%
+    arrange(desc(`IZ Whiff`)) %>%
+    mutate(iz_whiff_rank = round(percent_rank(`IZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`OZ Whiff`)) %>%
+    mutate(oz_whiff_rank = round(percent_rank(`OZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`GB%`)) %>%
+    mutate(gb_rank = round(percent_rank(`GB%`) * 100, 1)) %>%
+    arrange(desc(`HH%`)) %>%
+    mutate(hh_rank = round(percent_rank(`HH%`) * 100, 1)) %>%
+    arrange(desc(`SLGcon`)) %>%
+    mutate(slg_rank = round(percent_rank(`SLGcon`) * 100, 1)) %>%
+    arrange(desc(`Sweet Spot%`)) %>%
+    mutate(swspt_rank = round(percent_rank(`Sweet Spot%`) * 100, 1)) %>%
+    filter(batter == batter_id) %>%
+    select(swing_rank, chase_rank, foul_rank, whiff_rank, iz_whiff_rank, oz_whiff_rank,
+           gb_rank, hh_rank, slg_rank, swspt_rank)
+  
+  return(as.list(percentiles))
+}
+
+calculate_batter_zone_percentiles <- function(zone_perf, batter_id) {
+  # Calculates percentile ranks for batter zone performance
+  # zone_perf: tibble returned from calculate_batter_zone_perf
+  # batter_id: ID to identify current batter
+  
+  # Load supporting data
+  supporting_data <- read_csv("data/supporting/batter_zone_overall.csv", show_col_types = FALSE)
+  
+  # Rename zone_perf columns to match supporting data format
+  zone_perf_renamed <- zone_perf %>%
+    rename(
+      last_first_name = batter_id,
+      'Location' = zone_location,
+      'BIP' = bip,
+      `Swing%` = `Swing%`,
+      `Chase%` = `Chase%`,
+      `Foul%` = `Foul%`,
+      `Whiff%` = `Whiff%`,
+      `IZ Whiff` = `IZ Whiff`,
+      `OZ Whiff` = `OZ Whiff`,
+      `GB%` = `GB%`,
+      `HH%` = `HH%`,
+      `SLGcon` = `SLGcon`,
+      `Sweet Spot%` = `Sweet Spot%`
+    ) 
+  
+  # Combine with supporting data
+  combined <- rbind(supporting_data, zone_perf_renamed)
+  
+  # Calculate percentile ranks by zone location
+  percentiles <- combined %>%
+    group_by(Location) %>%
+    arrange(desc(`Swing%`), .by_group = TRUE) %>%
+    mutate(swing_rank = round(percent_rank(`Swing%`) * 100, 1)) %>%
+    arrange(desc(`Chase%`), .by_group = TRUE) %>%
+    mutate(chase_rank = round(percent_rank(`Chase%`) * 100, 1)) %>%
+    arrange(desc(`Foul%`), .by_group = TRUE) %>%
+    mutate(foul_rank = round(percent_rank(`Foul%`) * 100, 1)) %>%
+    arrange(desc(`Whiff%`), .by_group = TRUE) %>%
+    mutate(whiff_rank = round(percent_rank(`Whiff%`) * 100, 1)) %>%
+    arrange(desc(`IZ Whiff`), .by_group = TRUE) %>%
+    mutate(iz_whiff_rank = round(percent_rank(`IZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`OZ Whiff`), .by_group = TRUE) %>%
+    mutate(oz_whiff_rank = round(percent_rank(`OZ Whiff`) * 100, 1)) %>%
+    arrange(desc(`GB%`), .by_group = TRUE) %>%
+    mutate(gb_rank = round(percent_rank(`GB%`) * 100, 1)) %>%
+    arrange(desc(`HH%`), .by_group = TRUE) %>%
+    mutate(hh_rank = round(percent_rank(`HH%`) * 100, 1)) %>%
+    arrange(desc(`SLGcon`), .by_group = TRUE) %>%
+    mutate(slg_rank = round(percent_rank(`SLGcon`) * 100, 1)) %>%
+    arrange(desc(`Sweet Spot%`), .by_group = TRUE) %>%
+    mutate(swspt_rank = round(percent_rank(`Sweet Spot%`) * 100, 1)) %>%
+    ungroup() %>%
+    filter(batter == batter_id) %>%
+    select(Location, swing_rank, chase_rank, foul_rank, whiff_rank, iz_whiff_rank, 
+           oz_whiff_rank, gb_rank, hh_rank, slg_rank, swspt_rank)
+  
+  return(percentiles)
+}
+
+calculate_batter_profile_percentiles <- function(profile_metrics, batter_id) {
+  # Calculates percentile ranks for batter profile/swing quality metrics
+  # profile_metrics: list returned from calculate_batter_profile
+  # batter_id: ID to identify current batter
+  
+  # Load supporting data (using overall for now)
+  supporting_data <- read_csv("data/supporting/batter_overall_overall.csv", show_col_types = FALSE) %>%
+    select(batter, `Avg LA`, `LA Std Dev`, `Sweet Spot%`, `HH LA`, `Oppo FB%`, `Oppo FB EV`, `High AA%`)
+  
+  # Create current batter row with profile metrics
+  current_batter <- tibble(
+    last_first_name = batter_id,
+    `Avg LA` = profile_metrics$avg_la,
+    `LA Std Dev` = profile_metrics$la_std_dev,
+    `Sweet Spot%` = profile_metrics$sweet_spot_pct,
+    `HH LA` = profile_metrics$hh_la,
+    `Oppo FB%` = profile_metrics$oppo_fb_pct,
+    `Oppo FB EV` = profile_metrics$oppo_fb_ev,
+    `High AA%` = profile_metrics$high_aa_pct
+  )
+  
+  # Combine with supporting data
+  combined <- rbind(supporting_data, current_batter)
+  
+  # Calculate percentile ranks for each metric
+  percentiles <- combined %>%
+    arrange(desc(`Avg LA`)) %>%
+    mutate(avg_la_rank = round(percent_rank(`Avg LA`) * 100, 1)) %>%
+    arrange(desc(`LA Std Dev`)) %>%
+    mutate(la_std_rank = round(percent_rank(`LA Std Dev`) * 100, 1)) %>%
+    arrange(desc(`Sweet Spot%`)) %>%
+    mutate(swspt_rank = round(percent_rank(`Sweet Spot%`) * 100, 1)) %>%
+    arrange(desc(`HH LA`)) %>%
+    mutate(hh_la_rank = round(percent_rank(`HH LA`) * 100, 1)) %>%
+    arrange(desc(`Oppo FB%`)) %>%
+    mutate(oppo_fb_pct_rank = round(percent_rank(`Oppo FB%`) * 100, 1)) %>%
+    arrange(desc(`Oppo FB EV`)) %>%
+    mutate(oppo_fb_ev_rank = round(percent_rank(`Oppo FB EV`) * 100, 1)) %>%
+    arrange(desc(`High AA%`)) %>%
+    mutate(high_aa_rank = round(percent_rank(`High AA%`) * 100, 1)) %>%
+    filter(batter == batter_id) %>%
+    select(avg_la_rank, la_std_rank, swspt_rank, hh_la_rank, oppo_fb_pct_rank, 
+           oppo_fb_ev_rank, high_aa_rank)
+  
+  return(as.list(percentiles))
+}
+
+# =============================================================================
 # Pitch Metrics
 # =============================================================================
 
-calculate_pitch_metrics <- function(data, pitch_type) {
+calculate_pitch_metrics <- function(data, pitch_type, batter_hand = NULL) {
   # Returns aggregated metrics for a specific pitch type
-  
+  # If batter_hand is specified (R or L), filters to that handedness
   pitch_data <- data %>% filter(pitch_type == !!pitch_type)
   
+  if (!is.null(batter_hand)) {
+    total_data <- data %>% filter(stand == batter_hand)
+    pitch_data <- pitch_data %>% filter(stand == batter_hand)
+  } else {
+    total_data <- data
+  }
+  
   metrics <- list(
-    usage_pct = (nrow(pitch_data) / nrow(data)) * 100,
-    avg_velocity = mean(pitch_data$release_speed, na.rm = TRUE),
-    velo_min = min(pitch_data$release_speed, na.rm = TRUE),
-    velo_max = max(pitch_data$release_speed, na.rm = TRUE),
+    usage_pct = (nrow(pitch_data) / nrow(total_data)) * 100,
+    avg_velocity = round(mean(pitch_data$release_speed, na.rm = TRUE), 1),
+    velo_min = round(min(pitch_data$release_speed, na.rm = TRUE), 1),
+    velo_max = round(max(pitch_data$release_speed, na.rm = TRUE), 1),
+    rel_side = round(mean(pitch_data$release_pos_x, na.rm = TRUE), 2),
+    rel_height = round(mean(pitch_data$release_pos_z, na.rm = TRUE), 2),
+    hb = round(mean(pitch_data$pfx_x, na.rm = TRUE) * 12, 1),
+    vb = round(mean(pitch_data$pfx_z, na.rm = TRUE) * 12, 1),
+    spin = round(mean(pitch_data$release_spin_rate, na.rm = TRUE), 0),
     whiff_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / nrow(pitch_data)) * 100,
     swstr_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / sum(pitch_data$type == "X", na.rm = TRUE)) * 100,
     contact_pct = (sum(pitch_data$type != "B" & pitch_data$type != "X", na.rm = TRUE) / nrow(pitch_data)) * 100,
@@ -36,51 +336,6 @@ calculate_pitch_metrics <- function(data, pitch_type) {
   )
   
   return(metrics)
-}
-
-# =============================================================================
-# Zone-by-Zone Analysis
-# =============================================================================
-
-categorize_zone <- function(px, pz) {
-  # Categorizes pitch location into 9-zone grid
-  # Zones: 1-3 (top), 4-6 (middle), 7-9 (bottom)
-  # Left to right: 1,4,7 (left), 2,5,8 (center), 3,6,9 (right)
-  
-  if (is.na(px) || is.na(pz)) return(NA)
-  
-  zone <- case_when(
-    px < -0.83 & pz >= 2.5 ~ 1,
-    px >= -0.83 & px < 0.83 & pz >= 2.5 ~ 2,
-    px >= 0.83 & pz >= 2.5 ~ 3,
-    px < -0.83 & pz >= 1.5 & pz < 2.5 ~ 4,
-    px >= -0.83 & px < 0.83 & pz >= 1.5 & pz < 2.5 ~ 5,
-    px >= 0.83 & pz >= 1.5 & pz < 2.5 ~ 6,
-    px < -0.83 & pz < 1.5 ~ 7,
-    px >= -0.83 & px < 0.83 & pz < 1.5 ~ 8,
-    px >= 0.83 & pz < 1.5 ~ 9,
-    TRUE ~ NA
-  )
-  
-  return(zone)
-}
-
-calculate_zone_metrics <- function(data) {
-  # Returns performance metrics by zone
-  
-  zone_data <- data %>%
-    mutate(zone = categorize_zone(plate_x, plate_z)) %>%
-    filter(!is.na(zone)) %>%
-    group_by(zone) %>%
-    summarise(
-      pitch_count = n(),
-      avg_exit_velo = mean(launch_speed, na.rm = TRUE),
-      sweet_spot_pct = (sum(launch_angle >= 8 & launch_angle <= 32, na.rm = TRUE) / n()) * 100,
-      slug_pct = mean(launch_speed, na.rm = TRUE),
-      .groups = "drop"
-    )
-  
-  return(zone_data)
 }
 
 # =============================================================================
@@ -147,4 +402,321 @@ compare_periods <- function(current_data, previous_data, metrics_list) {
   
   # This is a template - would be populated based on specific metrics
   return(comparison)
+}
+
+# =============================================================================
+# Pitcher-Level Aggregates
+# =============================================================================
+
+calculate_pitcher_bip <- function(pitcher_data) {
+  # Returns total Balls In Play for a pitcher
+  bip_count <- sum(pitcher_data$description == "hit_into_play", na.rm = TRUE)
+  return(bip_count)
+}
+
+calculate_hitter_bip <- function(hitter_data) {
+  # Returns total Balls In Play for a hitter
+  bip_count <- sum(hitter_data$description == "hit_into_play", na.rm = TRUE)
+  return(bip_count)
+}
+
+# =============================================================================
+# Pitcher Overall & Pitch-Level Performance Metrics
+# ============================================================================
+
+calculate_pitcher_overall_perf <- function(pitcher_data) {
+  # Returns overall pitcher performance metrics
+  # Based on shiny_aggs.R PITCHER OVERALL PERF section
+  
+  pitcher_data <- pitcher_data %>%
+    mutate(isZone = ifelse(plate_z >= sz_bot & 
+                            plate_z <= sz_top & 
+                            plate_x >= -0.708 & plate_x <= 0.708, TRUE, FALSE))
+  
+  metrics <- list(
+    pitches = nrow(pitcher_data),
+    bip = sum(pitcher_data$description == "hit_into_play", na.rm = TRUE),
+    swing_pct = round(100 * sum(pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                                  "swinging_strike_blocked", "foul_tip", "foul_bunt"), na.rm = TRUE) / nrow(pitcher_data), 1),
+    strike_pct = round(100 * sum(pitcher_data$description %in% c("called_strike", "foul", "hit_into_play", "swinging_strike",
+                                                                   "swinging_strike_blocked", "foul_bunt"), na.rm = TRUE) / nrow(pitcher_data), 1),
+    zone_pct = round(100 * sum(pitcher_data$isZone == TRUE, na.rm = TRUE) / nrow(pitcher_data), 1),
+    chase_pct = round(100 * sum(pitcher_data$isZone == FALSE & pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                                                                 "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt"), na.rm = TRUE) / 
+                        sum(pitcher_data$isZone == FALSE, na.rm = TRUE), 1),
+    cs_pct = round(100 * sum(pitcher_data$description == "called_strike", na.rm = TRUE) / nrow(pitcher_data), 1),
+    foul_pct = round(100 * sum(pitcher_data$description == "foul", na.rm = TRUE) / 
+                      sum(pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                           "swinging_strike_blocked", "foul_tip", "foul_bunt"), na.rm = TRUE), 1),
+    whiff_pct = round(100 * sum(pitcher_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip"), na.rm = TRUE) / 
+                       sum(pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                            "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt"), na.rm = TRUE), 1),
+    iz_whiff = round(100 * sum(pitcher_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip") & pitcher_data$isZone == TRUE, na.rm = TRUE) / 
+                      sum(pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                           "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt") & pitcher_data$isZone == TRUE, na.rm = TRUE), 1),
+    oz_whiff = round(100 * sum(pitcher_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip") & pitcher_data$isZone == FALSE, na.rm = TRUE) / 
+                      sum(pitcher_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                           "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt") & pitcher_data$isZone == FALSE, na.rm = TRUE), 1),
+    gb_pct = round(100 * sum(pitcher_data$bb_type == "ground_ball" & pitcher_data$description == "hit_into_play", na.rm = TRUE) / 
+                    sum(pitcher_data$description == "hit_into_play", na.rm = TRUE), 1),
+    hh_pct = round(100 * sum(pitcher_data$launch_speed >= 95 & pitcher_data$description == "hit_into_play", na.rm = TRUE) / 
+                    sum(pitcher_data$description == "hit_into_play", na.rm = TRUE), 1)
+  )
+  
+  return(metrics)
+}
+
+calculate_pitcher_pitch_perf <- function(pitcher_data) {
+  # Returns pitch-level performance metrics (one row per pitch type)
+  # Based on shiny_aggs.R PITCHER PITCH LEVEL PERF section
+  
+  pitcher_data <- pitcher_data %>%
+    mutate(isZone = ifelse(plate_z >= sz_bot & 
+                            plate_z <= sz_top & 
+                            plate_x >= -0.708 & plate_x <= 0.708, TRUE, FALSE))
+  
+  pitch_types <- unique(pitcher_data$pitch_type)
+  
+  pitch_perf <- map_df(pitch_types, function(pt) {
+    pt_data <- pitcher_data %>% filter(pitch_type == pt)
+    
+    tibble(
+      pitch_type = pt,
+      pitches = nrow(pt_data),
+      bip = sum(pt_data$description == "hit_into_play", na.rm = TRUE),
+      swing_pct = round(100 * sum(pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                               "swinging_strike_blocked", "foul_tip", "foul_bunt"), na.rm = TRUE) / nrow(pt_data), 1),
+      strike_pct = round(100 * sum(pt_data$description %in% c("called_strike", "foul", "hit_into_play", "swinging_strike",
+                                                                "swinging_strike_blocked", "foul_bunt"), na.rm = TRUE) / nrow(pt_data), 1),
+      zone_pct = round(100 * sum(pt_data$isZone == TRUE, na.rm = TRUE) / nrow(pt_data), 1),
+      chase_pct = round(100 * sum(pt_data$isZone == FALSE & pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                                                          "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt"), na.rm = TRUE) / 
+                         sum(pt_data$isZone == FALSE, na.rm = TRUE), 1),
+      cs_pct = round(100 * sum(pt_data$description == "called_strike", na.rm = TRUE) / nrow(pt_data), 1),
+      foul_pct = round(100 * sum(pt_data$description == "foul", na.rm = TRUE) / 
+                        sum(pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                         "swinging_strike_blocked", "foul_tip", "foul_bunt"), na.rm = TRUE), 1),
+      whiff_pct = round(100 * sum(pt_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip"), na.rm = TRUE) / 
+                         sum(pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                          "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt"), na.rm = TRUE), 1),
+      iz_whiff = round(100 * sum(pt_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip") & pt_data$isZone == TRUE, na.rm = TRUE) / 
+                        sum(pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                         "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt") & pt_data$isZone == TRUE, na.rm = TRUE), 1),
+      oz_whiff = round(100 * sum(pt_data$description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip") & pt_data$isZone == FALSE, na.rm = TRUE) / 
+                        sum(pt_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                         "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt") & pt_data$isZone == FALSE, na.rm = TRUE), 1),
+      gb_pct = round(100 * sum(pt_data$bb_type == "ground_ball" & pt_data$description == "hit_into_play", na.rm = TRUE) / 
+                      sum(pt_data$description == "hit_into_play", na.rm = TRUE), 1),
+      hh_pct = round(100 * sum(pt_data$launch_speed >= 95 & pt_data$description == "hit_into_play", na.rm = TRUE) / 
+                      sum(pt_data$description == "hit_into_play", na.rm = TRUE), 1)
+    )
+  }) %>%
+    arrange(desc(pitches))
+  
+  return(pitch_perf)
+}
+
+# =============================================================================
+# Batter Overall, Zone, & Profile Performance Metrics
+# =============================================================================
+
+calculate_batter_overall_perf <- function(batter_data) {
+  # Returns overall batter performance metrics
+  # Based on shiny_aggs.R BATTER PERF OVR section
+  
+  batter_data <- batter_data %>%
+    mutate(isZone = ifelse(plate_z >= sz_bot & 
+                            plate_z <= sz_top & 
+                            plate_x >= -0.708 & plate_x <= 0.708, TRUE, FALSE),
+           sweet_spot = ifelse(launch_angle >= 8 & launch_angle <= 32, 1, 0))
+  
+  metrics <- list(
+    swing_pct = round(100 * sum(batter_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                                 "swinging_strike_blocked", "foul_tip", "foul_bunt"), na.rm = TRUE) / nrow(batter_data), 1),
+    chase_pct = round(100 * sum(batter_data$isZone == FALSE & batter_data$description %in% c("foul", "hit_into_play", "swinging_strike",
+                                                                                               "swinging_strike_blocked", "foul_tip", "bunt_foul_tip", "missed_bunt", "foul_bunt"), na.rm = TRUE) / 
+                       sum(batter_data$isZone == FALSE, na.rm = TRUE), 1),
+    foul_pct = round(100*(sum(batter_data$description == "foul",na.rm = T)/sum(batter_data$description %in% c("foul","hit_into_play",
+                                                                                                   "swinging_strike",
+                                                                                                   "swinging_strike_blocked",
+                                                                                                   "foul_tip","foul_bunt"),na.rm=T)),1),
+    whiff_pct = round(100*(sum(batter_data$description %in% c("swinging_strike","swinging_strike_blocked",
+                                                               "foul_tip"),na.rm = T)/
+                                          sum(batter_data$description %in% c("foul","hit_into_play","swinging_strike",
+                                                                 "swinging_strike_blocked","foul_tip",
+                                                                 "bunt_foul_tip","missed_bunt","foul_bunt"),
+                                              na.rm = T)),1),
+    iz_whiff = round(100*(sum(batter_data$description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip") & batter_data$isZone == TRUE,na.rm = T)/
+                                            sum(batter_data$description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt")
+                                                & batter_data$isZone == TRUE,na.rm = T)),1),
+    oz_whiff = round(100*(sum(batter_data$description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip")& batter_data$isZone == FALSE,na.rm = T)/
+                                            sum(batter_data$description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt") &
+                                                  batter_data$isZone == FALSE,na.rm = T)),1),
+    bip = sum(batter_data$description == "hit_into_play", na.rm = TRUE),
+    gb_pct = round(100 * sum(batter_data$launch_angle < 10 & batter_data$description == "hit_into_play", na.rm = TRUE) / 
+                    sum(batter_data$description == "hit_into_play", na.rm = TRUE), 1),
+    barrel_pct = round(100 * sum(batter_data$launch_speed >= 92 & batter_data$launch_angle >= 26 & batter_data$launch_angle <= 30 & batter_data$description == "hit_into_play", na.rm = TRUE) / 
+                        sum(batter_data$description == "hit_into_play", na.rm = TRUE), 1),
+    hh_pct = round(100 * sum(batter_data$launch_speed >= 95 & batter_data$description == "hit_into_play", na.rm = TRUE) / 
+                    sum(batter_data$description == "hit_into_play", na.rm = TRUE), 1),
+    slg = round(((1*sum(batter_data$events == "single" & batter_data$description == "hit_into_play",na.rm = T))+(2*sum(batter_data$events == "double" & batter_data$description == "hit_into_play",na.rm = T))+
+                                      (3*sum(batter_data$events == "triple" & batter_data$description == "hit_into_play",na.rm = T))+
+                                      (4*sum(batter_data$events == "home_run" & batter_data$description == "hit_into_play",na.rm = T)))/sum(batter_data$description == "hit_into_play", na.rm = T),3),
+    swspt_pct = round(100*(sum(batter_data$sweet_spot & batter_data$description == "hit_into_play", na.rm = T)/sum(batter_data$description == "hit_into_play")),1)
+  )
+  
+  return(metrics)
+}
+
+calculate_batter_zone_perf <- function(batter_data) {
+  # Returns zone-level batter performance (vertical and horizontal zones)
+  # Based on shiny_aggs.R BATTER PERF ZONE sections
+  
+  batter_data_v <- batter_data %>%
+    mutate(isZone = ifelse(plate_z >= sz_bot & 
+                            plate_z <= sz_top & 
+                            plate_x >= -0.708 & plate_x <= 0.708, TRUE, FALSE),
+          third_loc = ifelse(zone %in% c(1,2,3),"high",
+                                  ifelse(zone %in% c(4,5,6),"mid (v)",
+                                         ifelse(zone %in% c(7,8,9),"low","else"))),
+           sweet_spot = ifelse(launch_angle >= 8 & launch_angle <= 32, 1, 0)) %>%
+           group_by(third_loc) %>%
+        summarise(`BIP` = sum(description == "hit_into_play",na.rm=T),
+                  `Swing%` = round(100*(sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                               "swinging_strike_blocked","foul_tip","foul_bunt"),na.rm=T)/n()),1),
+                  `Chase%` = round(100*(sum(isZone == FALSE & 
+                                              (description %in% c("foul","hit_into_play","swinging_strike",
+                                                                  "swinging_strike_blocked","foul_tip",
+                                                                  "bunt_foul_tip","missed_bunt","foul_bunt")), na.rm = T)/
+                                          sum(isZone == FALSE, na.rm = T)),1),
+                  `Foul%` = round(100*(sum(description == "foul",na.rm = T)/sum(description %in% c("foul","hit_into_play",
+                                                                                                   "swinging_strike",
+                                                                                                   "swinging_strike_blocked",
+                                                                                                   "foul_tip","foul_bunt"),na.rm=T)),1),
+                  `Whiff%` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                               "foul_tip"),na.rm = T)/
+                                          sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                 "swinging_strike_blocked","foul_tip",
+                                                                 "bunt_foul_tip","missed_bunt","foul_bunt"),
+                                              na.rm = T)),1),
+                  `IZ Whiff` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip") & isZone == TRUE,na.rm = T)/
+                                            sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt")
+                                                & isZone == TRUE,na.rm = T)),1),
+                  `OZ Whiff` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip")& isZone == FALSE,na.rm = T)/
+                                            sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt") &
+                                                  isZone == FALSE,na.rm = T)),1),
+                  `GB%` = round(100*(sum(bb_type == "ground_ball" & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play",na.rm = T)),1),
+                  `HH%` = round(100*(sum(launch_speed >= 95 & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play", na.rm = T)),1),
+                  `SLGcon` = round(((1*sum(events == "single" & description == "hit_into_play",na.rm = T))+(2*sum(events == "double" & description == "hit_into_play",na.rm = T))+
+                                      (3*sum(events == "triple" & description == "hit_into_play",na.rm = T))+
+                                      (4*sum(events == "home_run" & description == "hit_into_play",na.rm = T)))/sum(description == "hit_into_play", na.rm = T),3),
+                  `Sweet Spot%` = round(100*(sum(sweet_spot & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play")),1)) %>%
+        rename(`Location` = third_loc)
+
+        batter_data_h <- batter_data %>%
+    mutate(isZone = ifelse(plate_z >= sz_bot & 
+                            plate_z <= sz_top & 
+                            plate_x >= -0.708 & plate_x <= 0.708, TRUE, FALSE),
+          third_loc = ifelse(zone %in% c(3,6,9) & stand == "R","out",
+                                  ifelse(zone %in% c(3,6,9) & stand == "L","in",
+                                         ifelse(zone %in% c(2,5,8),"mid (h)",
+                                                ifelse(zone %in% c(1,4,7) & stand == "R","in",
+                                                       ifelse(zone %in% c(1,4,7) & stand == "L","out","else"))))),
+           sweet_spot = ifelse(launch_angle >= 8 & launch_angle <= 32, 1, 0)) %>%
+           group_by(third_loc) %>%
+        summarise(`BIP` = sum(description == "hit_into_play",na.rm=T),
+                  `Swing%` = round(100*(sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                               "swinging_strike_blocked","foul_tip","foul_bunt"),na.rm=T)/n()),1),
+                  `Chase%` = round(100*(sum(isZone == FALSE & 
+                                              (description %in% c("foul","hit_into_play","swinging_strike",
+                                                                  "swinging_strike_blocked","foul_tip",
+                                                                  "bunt_foul_tip","missed_bunt","foul_bunt")), na.rm = T)/
+                                          sum(isZone == FALSE, na.rm = T)),1),
+                  `Foul%` = round(100*(sum(description == "foul",na.rm = T)/sum(description %in% c("foul","hit_into_play",
+                                                                                                   "swinging_strike",
+                                                                                                   "swinging_strike_blocked",
+                                                                                                   "foul_tip","foul_bunt"),na.rm=T)),1),
+                  `Whiff%` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                               "foul_tip"),na.rm = T)/
+                                          sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                 "swinging_strike_blocked","foul_tip",
+                                                                 "bunt_foul_tip","missed_bunt","foul_bunt"),
+                                              na.rm = T)),1),
+                  `IZ Whiff` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip") & isZone == TRUE,na.rm = T)/
+                                            sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt")
+                                                & isZone == TRUE,na.rm = T)),1),
+                  `OZ Whiff` = round(100*(sum(description %in% c("swinging_strike","swinging_strike_blocked",
+                                                                 "foul_tip")& isZone == FALSE,na.rm = T)/
+                                            sum(description %in% c("foul","hit_into_play","swinging_strike",
+                                                                   "swinging_strike_blocked","foul_tip",
+                                                                   "bunt_foul_tip","missed_bunt","foul_bunt") &
+                                                  isZone == FALSE,na.rm = T)),1),
+                  `GB%` = round(100*(sum(bb_type == "ground_ball" & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play",na.rm = T)),1),
+                  `HH%` = round(100*(sum(launch_speed >= 95 & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play", na.rm = T)),1),
+                  `SLGcon` = round(((1*sum(events == "single" & description == "hit_into_play",na.rm = T))+(2*sum(events == "double" & description == "hit_into_play",na.rm = T))+
+                                      (3*sum(events == "triple" & description == "hit_into_play",na.rm = T))+
+                                      (4*sum(events == "home_run" & description == "hit_into_play",na.rm = T)))/sum(description == "hit_into_play", na.rm = T),3),
+                  `Sweet Spot%` = round(100*(sum(sweet_spot & description == "hit_into_play", na.rm = T)/sum(description == "hit_into_play")),1)) %>%
+        rename(`Location` = third_loc) %>%
+        filter(`Location` != "else")
+
+        zone_perf <- rbind(batter_data_v,batter_data_h)
+  
+  
+  return(zone_perf)
+}
+
+calculate_batter_profile <- function(batter_data) {
+  # Returns batter profile metrics (swing quality and mechanics)
+  # Based on shiny_aggs.R BATTER PROFILE section
+  
+  batter_data <- batter_data %>%
+    filter(description == "hit_into_play", !str_detect(des, "bunt")) %>%
+    mutate(sweet_spot = ifelse(launch_angle >= 8 & launch_angle <= 32, 1, 0),
+    spray_angle = round(
+           (atan(
+             (hc_x-125.42)/(198.27-hc_y)
+           )*180/pi*.75)
+           ,1)
+    ) %>%
+    mutate(
+      bip_dir = ifelse(spray_angle > 15 & stand == "R", "oppo",
+                                 ifelse(spray_angle < -15 & stand == "R", "pull",
+                                        ifelse(spray_angle > 15 & stand == "L", "pull",
+                                               ifelse(spray_angle < -15 & stand == "L", "oppo",
+                                                      ifelse(spray_angle >= -15 & spray_angle <= 15, "middle",NA)))))
+    )
+  
+  if (nrow(batter_data) == 0) {
+    return(NULL)
+  }
+  
+  metrics <- list(
+    bbe = nrow(batter_data),
+    avg_la = round(mean(batter_data$launch_angle, na.rm = TRUE), 1),
+    la_std_dev = round(sd(batter_data$launch_angle, na.rm = TRUE), 1),
+    sweet_spot_pct = round(100 * sum(batter_data$sweet_spot, na.rm = TRUE) / nrow(batter_data), 1),
+    hh_la = round(mean(batter_data$launch_angle[batter_data$launch_speed >= 95], na.rm = TRUE), 1),
+    oppo_fb_pct = round(100*(sum(batter_data$bb_type == "fly_ball" & batter_data$bip_dir == "oppo",na.rm = T)/sum(batter_data$bb_type == "fly_ball",na.rm = T)),1),
+    oppo_fb_ev = round(mean(batter_data$launch_speed[batter_data$bb_type == "fly_ball" & batter_data$bip_dir == "oppo"],na.rm = T),1),
+    high_aa_pct = round(100 * sum(batter_data$attack_angle >= 14, na.rm = TRUE) / 
+                         sum(!is.na(batter_data$attack_angle)), 1)
+  )
+  
+  return(metrics)
 }
