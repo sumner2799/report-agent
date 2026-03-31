@@ -12,12 +12,9 @@
 ---
 
 ## Velocity & Release Profile
-| Pitch Type | Avg Velocity | Velo Range | Usage % |
-|---|---|---|---|
-| {{PITCH_TYPE}} | {{AVG_VELO}} | {{MIN}}-{{MAX}} | {{USAGE}} |
+{{PITCH_TABLE}}
 
-**Release Point Consistency:**
-- {{RELEASE_NOTES}}
+**Abbreviations:** H-Break = Horizontal Break (inches, positive to RHH), V-Break = Induced Vertical Break (inches), Release Side = X-position (ft, negative = left of center), Release Height = Z-position (ft)
 
 ---
 
