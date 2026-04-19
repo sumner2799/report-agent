@@ -1,8 +1,8 @@
-# New Pitcher Profile: 434378
+# New Pitcher Profile: Bibee, Tanner
 
-**Report Date:** February 24, 2026  
+**Report Date:** April 18, 2026  
 **Data Period:** [DATA PENDING]  
-**Sample Size:** 83 pitches
+**Sample Size:** 96 pitches
 
 ---
 
@@ -12,13 +12,14 @@ Awaiting analysis...
 ---
 
 ## Velocity & Release Profile
-| Pitch Type | Usage % | Avg Velo | Velo Range | H-Break | V-Break | Spin Rate | Release Side | Release Height |
-|---|---|---|---|---|---|---|---|---|
-| FF | 51.8 | 94.1 | 92.2-95.9 | -7.3 | 17.8 | 2459 | -1.59 | 6.96 |
-| ST | 13.3 | 78.8 | 76.9-80.4 | 12.5 | -5.4 | 2643 | -2 | 6.82 |
-| SL | 12 | 88.2 | 87.4-89.9 | 4.6 | 5.5 | 2451 | -1.68 | 6.87 |
-| CU | 12 | 79.7 | 77.8-81.8 | 6.2 | -9.8 | 2721 | -1.71 | 6.89 |
-| CH | 10.8 | 85.6 | 84-86.8 | -10.7 | 8.8 | 1525 | -1.89 | 6.78 |
+| Pitch Type | Usage% (RHH) | Usage% (LHH) | Avg Velo | Velo Range | H-Break | V-Break | Spin Rate | Release Side | Release Height |
+|---|---|---|---|---|---|---|---|---|---|
+| SI | 42.6 | 2.4 | 94.5 | 92.2-96.3 | -13.6 | 10.1 | 2271 | -2.21 | 6.53 |
+| ST | 27.8 | 16.7 | 82.7 | 81.3-84.5 | 15.1 | -4.7 | 2788 | -2.38 | 6.51 |
+| FF | 11.1 | 38.1 | 93.8 | 91.9-96.4 | -4.6 | 14.5 | 2230 | -2.22 | 6.55 |
+| CH | 5.6 | 26.2 | 82.3 | 79.1-83.5 | -10 | 14 | 2008 | -2.25 | 6.32 |
+| FC | 11.1 | 7.1 | 87.1 | 83.6-89.6 | 4.7 | 6.8 | 2743 | -2.42 | 6.46 |
+| CU | 1.9 | 9.5 | 78.8 | 77-80 | 10.6 | -10.3 | 2690 | -2.1 | 6.49 |
 
 
 **Abbreviations:** H-Break = Horizontal Break (inches, positive to RHH), V-Break = Induced Vertical Break (inches), Release Side = X-position (ft, negative = left of center), Release Height = Z-position (ft)

@@ -16,6 +16,7 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(stringr)
+library(ggplot2)
 
 # ==============================================================================
 # CONFIGURATION
@@ -23,7 +24,7 @@ library(stringr)
 
 # Thresholds
 GB_PERCENTILE_THRESHOLD <- 0.80        # 80th percentile or higher
-CHASE_PERCENTILE_THRESHOLD <- 0.20     # 20th percentile or lower
+CHASE_PERCENTILE_THRESHOLD <- 0.80     # 20th percentile or lower
 MIN_PITCHES_ZONE <- 50                 # Minimum pitches in middle zone per season
 
 # Binning for improvements
@@ -50,7 +51,7 @@ df <- batter_perf %>%
     filter(handedness == "Overall", game_type == "R", level == "MLB")
 
 # ==============================================================================
-# THRESHOLD & COHORT IDENTIFICATION - LEFT OFF
+# THRESHOLD & COHORT IDENTIFICATION
 # ==============================================================================
 
 # identify_elevated_kpi_cohort <- function(metrics_df) {
@@ -59,71 +60,104 @@ df <- batter_perf %>%
   # - Chase% <= 20th percentile
 
   try <- df %>%
-  filter(Location == "mid (h)", !is.na(`GB%`))
+  filter(season == "2024", last_first_name == "Diaz, Yainer", Location == "overall", breakdown == "total")
+  # filter(Location %in% c("mid (h)","mid (v)"), BIP >= 60)
+
+  ta <- df %>%
+  filter(last_first_name == "Anderson, Tim",season == "2023", Location %in% c("overall","mid (h)","mid (v)"))
+
+  gimmy <- df %>%
+    filter(last_first_name == "Giménez, Andrés", season %in% c("2024","2025"),Location == "mid (h)")
   
   # Calculate percentiles - NEED TO ADD IN SAMPLE THRESHOLDS
-  gb_80th <- quantile(df$`GB%`[df$Location %in% c("mid (h)","mid (v)"),], GB_PERCENTILE_THRESHOLD, na.rm = TRUE)
-  chase_20th <- quantile(metrics_df$chase_rate, CHASE_PERCENTILE_THRESHOLD, na.rm = TRUE)
+  gb_80th <- quantile(df$`GB%`[df$Location %in% c("mid (h)","mid (v)") & df$BIP >= 60], GB_PERCENTILE_THRESHOLD, na.rm = TRUE)
+  chase_20th <- quantile(df$`Chase%`[df$breakdown == "total" & df$Location == "overall"], CHASE_PERCENTILE_THRESHOLD, na.rm = TRUE)
   
   cat("\nThreshold Calculation:\n")
   cat(sprintf("  GB%% 80th percentile: %.1f%%\n", gb_80th))
   cat(sprintf("  Chase%% 20th percentile: %.1f%%\n", chase_20th))
   
   # Filter cohort
-  cohort <- metrics_df %>%
-    filter(gb_rate >= gb_80th, chase_rate <= chase_20th) %>%
+  cohort <- df %>%
+    filter(((`GB%` >= gb_80th & Location %in% c("mid (h)","mid (v)")) | (`Chase%` >= chase_20th & Location == "overall")),BIP >= 60) %>%
     mutate(
-      meets_gb_threshold = gb_rate >= gb_80th,
-      meets_chase_threshold = chase_rate <= chase_20th
+      meets_gb_threshold = `GB%` >= gb_80th,
+      meets_chase_threshold = `Chase%` >= chase_20th
     )
+
+    cohort2 <- cohort %>%
+    group_by(last_first_name,season,breakdown) %>%
+    summarise(tot = n()) %>%
+    mutate(count_break = 1) %>%
+    group_by(last_first_name,season) %>%
+    summarise(both_criteria = n()) %>%
+    filter(both_criteria > 1)
+
+
+    cohort_df <- inner_join(cohort,cohort2,by=c("last_first_name","season"))
+
   
-  cat("\nCohort Identification:\n")
-  cat(sprintf("  Total player-seasons in metrics: %d\n", nrow(metrics_df)))
-  cat(sprintf("  Players meeting both thresholds: %d\n", nrow(cohort)))
+  # cat("\nCohort Identification:\n")
+  # cat(sprintf("  Total player-seasons in metrics: %d\n", nrow(metrics_df)))
+  # cat(sprintf("  Players meeting both thresholds: %d\n", nrow(cohort2)))
   
   return(cohort)
 # }
+
+# altuve <- df %>%
+#   filter(last_first_name == "Altuve, Jose", season == "2025")
+
+# test_year <- df %>%
+#   filter(Location %in% c("mid (h)","mid (v)"), BIP >= 60, season == "2025") %>%
+#   group_by(last_first_name, season) %>%
+#   summarise(tot = n())
 
 # ==============================================================================
 # YEAR-TO-YEAR TRANSITIONS
 # ==============================================================================
 
-create_year_transitions <- function(cohort_df) {
+# create_year_transitions <- function(cohort_df) {
   # For each player in cohort, match to following year(s) to create transitions
+
+  y2y_data <- df %>% 
+    filter(Location %in% c("mid (v)","mid (h)","overall"), BIP >= 60)
   
-  transitions <- cohort_df %>%
-    arrange(player, year) %>%
-    group_by(player) %>%
+  transitions <- y2y_data %>%
+    arrange(last_first_name, season, Location) %>%
+    group_by(last_first_name, Location) %>%
     mutate(
-      next_year_row = lead(1)
+      next_year_row = lead(season, n = 1)
     ) %>%
     ungroup() %>%
     filter(!is.na(next_year_row)) %>%
     select(-next_year_row)
+
   
   # Join with next year data
-  next_year_data <- cohort_df %>%
-    select(player, year, contains("rate"), woba) %>%
+  next_year_data <- y2y_data %>%
+    select(last_first_name, season, Location, `Chase%`, `GB%`, `Whiff%`,`HH%`,`Sweet Spot%`, SLGcon) %>%
     rename(
-      current_year = year,
-      current_chase_rate = chase_rate,
-      current_gb_rate = gb_rate,
-      current_barrel_rate = barrel_rate,
-      current_hard_hit_rate = hard_hit_rate,
-      current_woba = woba
+      current_year = season,
+      current_chase_rate = `Chase%`,
+      current_gb_rate = `GB%`,
+      current_whiff_rate = `Whiff%`,
+      current_hard_hit_rate = `HH%`,
+      current_sweet_spot_rate = `Sweet Spot%`,
+      current_SLG = SLGcon
     )
   
   transitions <- transitions %>%
     rename(
-      prior_year = year,
-      prior_chase_rate = chase_rate,
-      prior_gb_rate = gb_rate,
-      prior_barrel_rate = barrel_rate,
-      prior_hard_hit_rate = hard_hit_rate,
-      prior_woba = woba
+      prior_year = season,
+      prior_chase_rate = `Chase%`,
+      prior_gb_rate = `GB%`,
+      prior_whiff_rate = `Whiff%`,
+      prior_hard_hit_rate = `HH%`,
+      prior_sweet_spot_rate = `Sweet Spot%`,
+      prior_SLG = SLGcon
     ) %>%
     mutate(current_year = prior_year + 1) %>%
-    left_join(next_year_data, by = c("player", "current_year")) %>%
+    left_join(next_year_data, by = c("last_first_name", "current_year", "Location")) %>%
     filter(!is.na(current_chase_rate))  # Only keep if next year exists
   
   # Calculate improvements
@@ -139,39 +173,57 @@ create_year_transitions <- function(cohort_df) {
         ((prior_chase_rate - current_chase_rate) / prior_chase_rate) * 100,
         NA_real_
       ),
-      barrel_change = current_barrel_rate - prior_barrel_rate,
+      gb_change = current_gb_rate - prior_gb_rate,
+      chase_change = current_chase_rate - prior_chase_rate,
+      whiff_change = current_whiff_rate - prior_whiff_rate,
       hard_hit_change = current_hard_hit_rate - prior_hard_hit_rate,
-      woba_change = current_woba - prior_woba
+      slg_change = current_SLG - prior_SLG,
+      sweet_spot_change = current_sweet_spot_rate - prior_sweet_spot_rate
     ) %>%
     select(
-      player, prior_year, current_year,
-      prior_chase_rate, prior_gb_rate, prior_barrel_rate, prior_hard_hit_rate, prior_woba,
-      current_chase_rate, current_gb_rate, current_barrel_rate, current_hard_hit_rate, current_woba,
-      gb_improvement_pct, chase_improvement_pct, barrel_change, hard_hit_change, woba_change
+      last_first_name, prior_year, current_year, Location, BIP, 
+      prior_chase_rate, prior_gb_rate, prior_whiff_rate, prior_hard_hit_rate, prior_SLG, prior_sweet_spot_rate,
+      current_chase_rate, current_gb_rate, current_whiff_rate, current_hard_hit_rate, current_SLG, current_sweet_spot_rate,
+      gb_change, gb_improvement_pct, chase_change, chase_improvement_pct, whiff_change, hard_hit_change, slg_change, sweet_spot_change
     )
+
+    transitions_df <- transitions
+
+    # ts <- transitions_df %>%
+    #   filter(((current_gb_rate < gb_80th) & Location %in% c("mid (h)","mid (v)")) | 
+    #   ((current_chase_rate < chase_20th)& Location =="overall"))
+
+
   
-  return(transitions)
-}
+#   return(transitions)
+# }
 
 # ==============================================================================
 # EMPIRICAL BINNING ANALYSIS
 # ==============================================================================
 
-bin_by_improvement <- function(transitions_df, improvement_col = "gb_improvement_pct",
-                               weight_by_magnitude = TRUE) {
+# bin_by_improvement <- function(transitions_df, improvement_col = "gb_improvement_pct",
+#                                weight_by_magnitude = TRUE) {
   # Group transitions by improvement level and calculate mean/median performance metrics
+
+  binning_df <- inner_join(transitions_df,cohort2,by=c("last_first_name","prior_year"="season"))
+
   
-  df <- transitions_df %>%
-    filter(!is.na(!!sym(improvement_col)))
+  binning_df2 <- binning_df %>%
+    filter(
+      !is.na(!!sym(improvement_col)),
+      # Location %in% c("mid (h)", "mid (v)")
+      Location == "overall"
+    )
   
-  binned_results <- list()
+  binned_results_chase <- list()
   
   for (i in seq_len(nrow(IMPROVEMENT_BINS))) {
     bin_min <- IMPROVEMENT_BINS$bin_min[i]
     bin_max <- IMPROVEMENT_BINS$bin_max[i]
     bin_label <- IMPROVEMENT_BINS$bin_label[i]
     
-    bin_data <- df %>%
+    bin_data <- binning_df2 %>%
       filter(!!sym(improvement_col) >= bin_min & !!sym(improvement_col) < bin_max)
     
     if (nrow(bin_data) == 0) {
@@ -189,152 +241,551 @@ bin_by_improvement <- function(transitions_df, improvement_col = "gb_improvement
     result <- list(
       n_transitions = nrow(bin_data),
       improvement_range = sprintf("%d-%d%%", bin_min, bin_max),
-      mean_barrel_change = sum(bin_data$barrel_change * weights, na.rm = TRUE),
-      median_barrel_change = median(bin_data$barrel_change, na.rm = TRUE),
+      mean_whiff_change = sum(bin_data$whiff_change * weights, na.rm = TRUE),
+      median_whiff_change = median(bin_data$whiff_change, na.rm = TRUE),
       mean_hard_hit_change = sum(bin_data$hard_hit_change * weights, na.rm = TRUE),
       median_hard_hit_change = median(bin_data$hard_hit_change, na.rm = TRUE),
-      mean_woba_change = sum(bin_data$woba_change * weights, na.rm = TRUE),
-      median_woba_change = median(bin_data$woba_change, na.rm = TRUE)
+      mean_slg_change = sum(bin_data$slg_change * weights, na.rm = TRUE),
+      median_slg_change = median(bin_data$slg_change, na.rm = TRUE),
+      mean_sweet_spot_change = sum(bin_data$sweet_spot_change * weights, na.rm = TRUE),
+      median_sweet_spot_change = median(bin_data$sweet_spot_change, na.rm = TRUE)
     )
     
-    binned_results[[bin_label]] <- result
+    binned_results_chase[[bin_label]] <- result
   }
   
-  return(binned_results)
-}
+  # return(binned_results)
+# }
 
 # ==============================================================================
 # REGRESSION MODELING
 # ==============================================================================
 
-fit_regression_models <- function(transitions_df) {
+## 3 buckets of models:
+# 1. impact of KPIs on pitches in the middle of zone from improvied GB%
+# 2. Impact of kPIs from an overall improved Chase%
+# 3. Specific impacts from combo of improved GB% (middle) + Chase% (overall)
+# - All KPIs from middle pitches
+# - Overall Slug
+
+# fit_regression_models <- function(transitions_df) {
   # Fit OLS models predicting performance metrics from KPI improvements
   
   df <- transitions_df %>%
     filter(!is.na(gb_improvement_pct), !is.na(chase_improvement_pct),
-           !is.na(barrel_change), !is.na(hard_hit_change), !is.na(woba_change))
+           !is.na(whiff_change), !is.na(hard_hit_change), !is.na(slg_change),
+           !is.na(sweet_spot_change), !is.na(gb_change), !is.na(chase_change),
+           , Location %in% c("mid (h)", "mid (v)")
+          #  , Location == "overall"
+           )
+
+  df_chase <- transitions_df %>%
+    filter(!is.na(gb_improvement_pct), !is.na(chase_improvement_pct),
+           !is.na(whiff_change), !is.na(hard_hit_change), !is.na(slg_change),
+           !is.na(sweet_spot_change), !is.na(gb_change), !is.na(chase_change),
+          #  , Location %in% c("mid (h)", "mid (v)")
+           , Location == "overall"
+           )
   
   if (nrow(df) < 5) {
     return(list(error = "Insufficient data for regression"))
   }
   
-  models <- list()
+  models_gb <- list()
   
-  # Model 1: Barrel Rate
-  model_barrel <- lm(barrel_change ~ gb_improvement_pct + chase_improvement_pct, data = df)
-  models$barrel_rate <- list(
-    gb_improvement_coef = coef(model_barrel)["gb_improvement_pct"],
-    chase_improvement_coef = coef(model_barrel)["chase_improvement_pct"],
-    intercept = coef(model_barrel)["(Intercept)"],
-    r2_score = summary(model_barrel)$r.squared,
+  # Model 1: whiff Rate - GB
+  models_gb_whiff <- lm(whiff_change ~ gb_improvement_pct, data = df)
+  models_gb$whiff_rate <- list(
+    gb_improvement_coef = coef(models_gb_whiff)["gb_improvement_pct"],
+    # chase_improvement_coef = coef(models_gb_whiff)["chase_improvement_pct"],
+    intercept = coef(models_gb_whiff)["(Intercept)"],
+    r2_score = summary(models_gb_whiff)$r.squared,
     n_observations = nrow(df),
     interpretation = sprintf(
-      "1%% improvement in GB%% → %.3f point change in barrel_rate",
-      coef(model_barrel)["gb_improvement_pct"]
+      "1%% improvement in GB%% → %.3f point change in whiff_rate",
+      coef(models_gb_whiff)["gb_improvement_pct"]
     )
   )
   
-  # Model 2: Hard-Hit Rate
-  model_hard_hit <- lm(hard_hit_change ~ gb_improvement_pct + chase_improvement_pct, data = df)
-  models$hard_hit_rate <- list(
-    gb_improvement_coef = coef(model_hard_hit)["gb_improvement_pct"],
-    chase_improvement_coef = coef(model_hard_hit)["chase_improvement_pct"],
-    intercept = coef(model_hard_hit)["(Intercept)"],
-    r2_score = summary(model_hard_hit)$r.squared,
+  # Model 2: Hard-Hit Rate - GB
+  models_gb_hard_hit <- lm(hard_hit_change ~ gb_improvement_pct, data = df)
+  models_gb$hard_hit_rate <- list(
+    gb_improvement_coef = coef(models_gb_hard_hit)["gb_improvement_pct"],
+    # chase_improvement_coef = coef(models_gb_hard_hit)["chase_improvement_pct"],
+    intercept = coef(models_gb_hard_hit)["(Intercept)"],
+    r2_score = summary(models_gb_hard_hit)$r.squared,
     n_observations = nrow(df),
     interpretation = sprintf(
       "1%% improvement in GB%% → %.3f point change in hard_hit_rate",
-      coef(model_hard_hit)["gb_improvement_pct"]
+      coef(models_gb_hard_hit)["gb_improvement_pct"]
     )
   )
   
-  # Model 3: wOBA
-  model_woba <- lm(woba_change ~ gb_improvement_pct + chase_improvement_pct, data = df)
-  models$woba <- list(
-    gb_improvement_coef = coef(model_woba)["gb_improvement_pct"],
-    chase_improvement_coef = coef(model_woba)["chase_improvement_pct"],
-    intercept = coef(model_woba)["(Intercept)"],
-    r2_score = summary(model_woba)$r.squared,
+  # Model 3: slg - GB
+  models_gb_slg <- lm(slg_change ~ gb_improvement_pct, data = df)
+  models_gb$slg <- list(
+    gb_improvement_coef = coef(models_gb_slg)["gb_improvement_pct"],
+    # chase_improvement_coef = coef(models_gb_slg)["chase_improvement_pct"],
+    intercept = coef(models_gb_slg)["(Intercept)"],
+    r2_score = summary(models_gb_slg)$r.squared,
     n_observations = nrow(df),
     interpretation = sprintf(
-      "1%% improvement in GB%% → %.3f point change in woba",
-      coef(model_woba)["gb_improvement_pct"]
+      "1%% improvement in GB%% → %.3f point change in slg",
+      coef(models_gb_slg)["gb_improvement_pct"]
+    )
+  )
+
+    # Model 4: Sweet-Spot% - GB
+  models_gb_sweet_spot <- lm(sweet_spot_change ~ gb_improvement_pct, data = df)
+  models_gb$sweet_spot <- list(
+    gb_improvement_coef = coef(models_gb_sweet_spot)["gb_improvement_pct"],
+    # chase_improvement_coef = coef(models_gb_sweet_spot)["chase_improvement_pct"],
+    intercept = coef(models_gb_sweet_spot)["(Intercept)"],
+    r2_score = summary(models_gb_sweet_spot)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in sweet_spot",
+      coef(models_gb_sweet_spot)["gb_improvement_pct"]
+    )
+  )
+
+models_gb_reg <- list()
+  
+  # Model 1: whiff Rate - GB
+  models_gb_whiff_reg <- lm(whiff_change ~ gb_change, data = df)
+  models_gb_reg$whiff_rate <- list(
+    gb_improvement_coef = coef(models_gb_whiff_reg)["gb_change"],
+    # chase_improvement_coef = coef(models_gb_whiff_reg)["chase_improvement_pct"],
+    intercept = coef(models_gb_whiff_reg)["(Intercept)"],
+    r2_score = summary(models_gb_whiff_reg)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in whiff_rate",
+      coef(models_gb_whiff_reg)["gb_change"]
     )
   )
   
-  return(models)
-}
+  # Model 2: Hard-Hit Rate - GB
+  models_gb_hard_hit_reg <- lm(hard_hit_change ~ gb_change, data = df)
+  models_gb_reg$hard_hit_rate <- list(
+    gb_improvement_coef = coef(models_gb_hard_hit_reg)["gb_change"],
+    # chase_improvement_coef = coef(models_gb_hard_hit_reg)["chase_improvement_pct"],
+    intercept = coef(models_gb_hard_hit_reg)["(Intercept)"],
+    r2_score = summary(models_gb_hard_hit_reg)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in hard_hit_rate",
+      coef(models_gb_hard_hit_reg)["gb_change"]
+    )
+  )
+  
+  # Model 3: slg - GB
+  models_gb_slg_reg <- lm(slg_change ~ gb_change, data = df)
+  models_gb_reg$slg <- list(
+    gb_improvement_coef = coef(models_gb_slg_reg)["gb_change"],
+    # chase_improvement_coef = coef(models_gb_slg_reg)["chase_improvement_pct"],
+    intercept = coef(models_gb_slg_reg)["(Intercept)"],
+    r2_score = summary(models_gb_slg_reg)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in slg",
+      coef(models_gb_slg_reg)["gb_change"]
+    )
+  )
+
+    # Model 4: Sweet-Spot% - GB
+  models_gb_sweet_spot_reg <- lm(sweet_spot_change ~ gb_change, data = df)
+  models_gb_reg$sweet_spot <- list(
+    gb_improvement_coef = coef(models_gb_sweet_spot_reg)["gb_change"],
+    # chase_improvement_coef = coef(models_gb_sweet_spot_reg)["chase_improvement_pct"],
+    intercept = coef(models_gb_sweet_spot_reg)["(Intercept)"],
+    r2_score = summary(models_gb_sweet_spot_reg)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in sweet_spot",
+      coef(models_gb_sweet_spot_reg)["gb_change"]
+    )
+  )
+
+models_chase <- list()
+  
+  # Model 1: whiff Rate - GB
+  models_chase_whiff <- lm(whiff_change ~ chase_improvement_pct, data = df_chase)
+  models_chase$whiff_rate <- list(
+    # gb_improvement_coef = coef(models_chase_whiff)["gb_improvement_pct"],
+    chase_improvement_coef = coef(models_chase_whiff)["chase_improvement_pct"],
+    intercept = coef(models_chase_whiff)["(Intercept)"],
+    r2_score = summary(models_chase_whiff)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in whiff_rate",
+      coef(models_chase_whiff)["gb_improvement_pct"]
+    )
+  )
+  
+  # Model 2: Hard-Hit Rate - GB
+  models_chase_hard_hit <- lm(hard_hit_change ~ chase_improvement_pct, data = df_chase)
+  models_chase$hard_hit_rate <- list(
+    # gb_improvement_coef = coef(models_chase_hard_hit)["gb_improvement_pct"],
+    chase_improvement_coef = coef(models_chase_hard_hit)["chase_improvement_pct"],
+    intercept = coef(models_chase_hard_hit)["(Intercept)"],
+    r2_score = summary(models_chase_hard_hit)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in hard_hit_rate",
+      coef(models_chase_hard_hit)["gb_improvement_pct"]
+    )
+  )
+  
+  # Model 3: slg - GB
+  models_chase_slg <- lm(slg_change ~ chase_improvement_pct, data = df_chase)
+  models_chase$slg <- list(
+    # gb_improvement_coef = coef(models_chase_slg)["gb_improvement_pct"],
+    chase_improvement_coef = coef(models_chase_slg)["chase_improvement_pct"],
+    intercept = coef(models_chase_slg)["(Intercept)"],
+    r2_score = summary(models_chase_slg)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in slg",
+      coef(models_chase_slg)["gb_improvement_pct"]
+    )
+  )
+
+    # Model 4: Sweet-Spot% - GB
+  models_chase_sweet_spot <- lm(sweet_spot_change ~ chase_improvement_pct, data = df_chase)
+  models_chase$sweet_spot <- list(
+    # gb_improvement_coef = coef(models_chase_sweet_spot)["gb_improvement_pct"],
+    chase_improvement_coef = coef(models_chase_sweet_spot)["chase_improvement_pct"],
+    intercept = coef(models_chase_sweet_spot)["(Intercept)"],
+    r2_score = summary(models_chase_sweet_spot)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "1%% improvement in GB%% → %.3f point change in sweet_spot",
+      coef(models_chase_sweet_spot)["gb_improvement_pct"]
+    )
+  )
+
+  df_combo <- transitions_df %>%
+    filter(!is.na(gb_improvement_pct), !is.na(chase_improvement_pct),
+           !is.na(whiff_change), !is.na(hard_hit_change), !is.na(slg_change),
+           !is.na(sweet_spot_change)
+          #  , Location %in% c("mid (h)", "mid (v)")
+          #  , Location == "overall"
+           ) %>%
+    group_by(last_first_name,prior_year,current_year) %>%
+    summarise(
+      gb_improvement = gb_improvement_pct[Location == "mid (v)"],
+      chase_improvement = chase_improvement_pct[Location == "overall"],
+      ovr_slg_change = slg_change[Location == "overall"],
+      mid_slg_change = slg_change[Location == "mid (v)"],
+      mid_whiff_change = whiff_change[Location == "mid (v)"],
+      mid_hh_change = hard_hit_change[Location == "mid (v)"],
+      mid_swspot_change = sweet_spot_change[Location == "mid (v)"]
+    )
+
+    models_combo <- list()
+  
+  # Model 1: whiff Rate - Combo
+  models_combo_whiff <- lm(mid_whiff_change ~ gb_improvement + chase_improvement, data = df_combo)
+  models_combo$whiff_rate <- list(
+    gb_improvement_coef = coef(models_combo_whiff)["gb_improvement"],
+    chase_improvement_coef = coef(models_combo_whiff)["chase_improvement"],
+    intercept = coef(models_combo_whiff)["(Intercept)"],
+    r2_score = summary(models_combo_whiff)$r.squared,
+    n_observations = nrow(df_combo),
+    interpretation = sprintf(
+      "GB%%: 1%% improvement → %.3f pt change | Chase%%: 1%% improvement → %.3f pt change",
+      coef(models_combo_whiff)["gb_improvement"],
+      coef(models_combo_whiff)["chase_improvement"]
+    )
+  )
+  
+  # Model 2: Hard-Hit Rate - Combo
+  models_combo_hard_hit <- lm(mid_hh_change ~ gb_improvement + chase_improvement, data = df_combo)
+  models_combo$hard_hit_rate <- list(
+    gb_improvement_coef = coef(models_combo_hard_hit)["gb_improvement"],
+    chase_improvement_coef = coef(models_combo_hard_hit)["chase_improvement"],
+    intercept = coef(models_combo_hard_hit)["(Intercept)"],
+    r2_score = summary(models_combo_hard_hit)$r.squared,
+    n_observations = nrow(df),
+    interpretation = sprintf(
+      "GB%%: 1%% improvement → %.3f pt change | Chase%%: 1%% improvement → %.3f pt change",
+      coef(models_combo_hard_hit)["gb_improvement"],
+      coef(models_combo_hard_hit)["chase_improvement"]
+    )
+  )
+  
+  # Model 3: slg - Combo
+  models_combo_slg_mid <- lm(mid_slg_change ~ gb_improvement + chase_improvement, data = df_combo)
+  models_combo$slg_mid <- list(
+    gb_improvement_coef = coef(models_combo_slg_mid)["gb_improvement_pct"],
+    chase_improvement_coef = coef(models_combo_slg_mid)["chase_improvement"],
+    intercept = coef(models_combo_slg_mid)["(Intercept)"],
+    r2_score = summary(models_combo_slg_mid)$r.squared,
+    n_observations = nrow(df_combo),
+    interpretation = sprintf(
+      "GB%%: 1%% improvement → %.3f pt change | Chase%%: 1%% improvement → %.3f pt change",
+      coef(models_combo_slg_mid)["gb_improvement_pct"],
+      coef(models_combo_slg_mid)["chase_improvement"]
+    )
+  )
+
+  models_combo_slg_ovr <- lm(ovr_slg_change ~ gb_improvement + chase_improvement, data = df_combo)
+  models_combo$slg_ovr <- list(
+    gb_improvement_coef = coef(models_combo_slg_ovr)["gb_improvement"],
+    chase_improvement_coef = coef(models_combo_slg_ovr)["chase_improvement"],
+    intercept = coef(models_combo_slg_ovr)["(Intercept)"],
+    r2_score = summary(models_combo_slg_ovr)$r.squared,
+    n_observations = nrow(df_combo),
+    interpretation = sprintf(
+      "GB%%: 1%% improvement → %.3f pt change | Chase%%: 1%% improvement → %.3f pt change",
+      coef(models_combo_slg_ovr)["gb_improvement"],
+      coef(models_combo_slg_ovr)["chase_improvement"]
+    )
+  )
+
+    # Model 4: Sweet-Spot% - Combo
+  models_combo_sweet_spot <- lm(mid_swspot_change ~ gb_improvement + chase_improvement, data = df_combo)
+  models_combo$sweet_spot <- list(
+    gb_improvement_coef = coef(models_combo_sweet_spot)["gb_improvement"],
+    chase_improvement_coef = coef(models_combo_sweet_spot)["chase_improvement"],
+    intercept = coef(models_combo_sweet_spot)["(Intercept)"],
+    r2_score = summary(models_combo_sweet_spot)$r.squared,
+    n_observations = nrow(df_combo),
+    interpretation = sprintf(
+      "GB%%: 1%% improvement → %.3f pt change | Chase%%: 1%% improvement → %.3f pt change",
+      coef(models_combo_sweet_spot)["gb_improvement"],
+      coef(models_combo_sweet_spot)["chase_improvement"]
+    )
+  )
+  
+#   return(models)
+# }
 
 # ==============================================================================
 # CORRELATION & TRADEOFF ANALYSIS
 # ==============================================================================
 
-analyze_gb_impact_tradeoff <- function(transitions_df) {
+# analyze_gb_impact_tradeoff <- function(transitions_df) {
   # For players who improved GB%, test if impact quality changed unexpectedly
   
   df <- transitions_df %>%
     filter(gb_improvement_pct > 0,  # GB% actually improved (reduced)
-           !is.na(barrel_change),
+           !is.na(whiff_change),
            !is.na(hard_hit_change),
-           !is.na(woba_change))
+           !is.na(slg_change),
+           !is.na(sweet_spot_change),
+           Location %in% c("mid (h)", "mid (v)"))
   
   if (nrow(df) < 3) {
     return(list(error = "Insufficient data for correlation analysis"))
   }
   
   # Calculate correlations and p-values
-  corr_barrel <- cor(df$gb_improvement_pct, df$barrel_change, use = "complete.obs")
+  corr_whiff <- cor(df$gb_improvement_pct, df$whiff_change, use = "complete.obs")
   corr_hard_hit <- cor(df$gb_improvement_pct, df$hard_hit_change, use = "complete.obs")
-  corr_woba <- cor(df$gb_improvement_pct, df$woba_change, use = "complete.obs")
+  corr_slg <- cor(df$gb_improvement_pct, df$slg_change, use = "complete.obs")
+  corr_sweet_spot <- cor(df$gb_improvement_pct, df$sweet_spot_change, use = "complete.obs")
+
+  corr_whiff_pp <- cor(df$gb_change, df$whiff_change, use = "complete.obs")
+  corr_hard_hit_pp <- cor(df$gb_change, df$hard_hit_change, use = "complete.obs")
+  corr_slg_pp <- cor(df$gb_change, df$slg_change, use = "complete.obs")
+  corr_sweet_spot_pp <- cor(df$gb_change, df$sweet_spot_change, use = "complete.obs")
   
   # P-values
-  test_barrel <- cor.test(df$gb_improvement_pct, df$barrel_change)
+  test_whiff <- cor.test(df$gb_improvement_pct, df$whiff_change)
   test_hard_hit <- cor.test(df$gb_improvement_pct, df$hard_hit_change)
-  test_woba <- cor.test(df$gb_improvement_pct, df$woba_change)
+  test_slg <- cor.test(df$gb_improvement_pct, df$slg_change)
+  test_sweet_spot <- cor.test(df$gb_improvement_pct, df$sweet_spot_change)
+
+  test_whiff_pp <- cor.test(df$gb_change, df$whiff_change)
+  test_hard_hit_pp <- cor.test(df$gb_change, df$hard_hit_change)
+  test_slg_pp <- cor.test(df$gb_change, df$slg_change)
+  test_sweet_spot_pp <- cor.test(df$gb_change, df$sweet_spot_change)
   
   result <- list(
     n_players_with_gb_improvement = nrow(df),
     correlations = list(
-      gb_improvement_vs_barrel_change = list(
-        r = corr_barrel,
-        p_value = test_barrel$p.value
+      gb_improvement_vs_whiff_change = list(
+        r = corr_whiff,
+        p_value = test_whiff$p.value
       ),
       gb_improvement_vs_hard_hit_change = list(
         r = corr_hard_hit,
         p_value = test_hard_hit$p.value
       ),
-      gb_improvement_vs_woba_change = list(
-        r = corr_woba,
-        p_value = test_woba$p.value
+      gb_improvement_vs_slg_change = list(
+        r = corr_slg,
+        p_value = test_slg$p.value
+      ),
+      gb_improvement_vs_sweet_spot_change = list(
+        r = corr_sweet_spot,
+        p_value = test_sweet_spot$p.value
       )
     ),
     interpretation = list(
-      barrel = if (corr_barrel > 0) "positive" else if (corr_barrel < 0) "negative" else "none",
+      barrel = if (corr_whiff > 0) "positive" else if (corr_whiff < 0) "negative" else "none",
       hard_hit = if (corr_hard_hit > 0) "positive" else if (corr_hard_hit < 0) "negative" else "none",
-      woba = if (corr_woba > 0) "positive" else if (corr_woba < 0) "negative" else "none"
+      sweet_spot = if (corr_sweet_spot > 0) "positive" else if (corr_sweet_spot < 0) "negative" else "none",
+      slg = if (corr_slg > 0) "positive" else if (corr_slg < 0) "negative" else "none"
+    )
+  )
+  
+#   return(result)
+# }
+
+# ==============================================================================
+# FREQUENCY ANALYSIS: How Often Do Players Improve?
+# ==============================================================================
+
+# analyze_improvement_frequency <- function(transitions_df, cohort_df) {
+  # Analyze how often players in the cohort actually improve both KPIs
+  # (GB% and Chase Rate), and among those who improve both, how many see
+  # corresponding performance benefits
+  
+  # Get baseline cohort size
+  cohort_size <- nrow(cohort_df %>% 
+                      distinct(last_first_name, season))
+  
+  # Get transitions from cohort
+  transitions_from_cohort <- transitions_df %>%
+    semi_join(df %>% 
+              select(last_first_name, season) %>%
+              rename(prior_year = season),
+              by = c("last_first_name", "prior_year"))
+  
+  transition_count <- nrow(transitions_from_cohort %>% distinct(last_first_name, prior_year, current_year))
+  
+  # Get GB% data (mid-zone vertical)
+  gb_transitions <- transitions_from_cohort %>%
+    filter(Location == "mid (v)") %>%
+    select(last_first_name, prior_year, current_year, gb_improvement_pct, hard_hit_change, sweet_spot_change, slg_change)
+  
+  # Get Chase Rate data (overall)
+  chase_transitions <- transitions_from_cohort %>%
+    filter(Location == "overall") %>%
+    select(last_first_name, prior_year, current_year, chase_improvement_pct)
+  
+  # Join to get both metrics for same transitions
+  both_kpi_transitions <- gb_transitions %>%
+    left_join(chase_transitions, by = c("last_first_name", "prior_year", "current_year")) %>%
+    filter(!is.na(gb_improvement_pct), !is.na(chase_improvement_pct))
+  
+  # Count those who improved BOTH GB% AND Chase Rate
+  both_improved <- both_kpi_transitions %>%
+    filter(gb_improvement_pct > 0,  # GB% improvement (lower is better)
+           chase_improvement_pct > 0)  # Chase% improvement (lower is better)
+  
+  both_improved_count <- nrow(both_improved)
+  
+  # Among those who improved BOTH KPIs, how many also improved performance?
+  # Define performance improvement as positive change in at least 2 of: hard_hit, sweet_spot, or slg
+  both_improved_with_perf_gain <- both_improved %>%
+    mutate(
+      perf_metrics_improved = (if_else(hard_hit_change > 0, 1, 0)) +
+                             (if_else(sweet_spot_change > 0, 1, 0)) +
+                             (if_else(slg_change > 0, 1, 0))
+    ) %>%
+    filter(perf_metrics_improved >= 2)
+  
+  perf_gain_count <- nrow(both_improved_with_perf_gain)
+  
+  # Calculate percentages
+  pct_both_improved <- if (transition_count > 0) (both_improved_count / transition_count) * 100 else 0
+  pct_with_perf_benefit <- if (both_improved_count > 0) (perf_gain_count / both_improved_count) * 100 else 0
+  
+  result <- list(
+    cohort_size = cohort_size,
+    total_transitions = transition_count,
+    both_kpi_improvements = both_improved_count,
+    both_kpi_with_perf_gain = perf_gain_count,
+    pct_both_improved = pct_both_improved,
+    pct_both_with_benefit = pct_with_perf_benefit,
+    summary = sprintf(
+      "Of %d player-seasons in the elevated KPI cohort, %d (%.1f%%) improved both GB%% and Chase Rate in the following year. Among those who improved both KPIs, %d (%.1f%%) also gained in performance quality (2+ metrics improved).",
+      cohort_size,
+      both_improved_count,
+      pct_both_improved,
+      perf_gain_count,
+      pct_with_perf_benefit
     )
   )
   
   return(result)
-}
+
+    specific_gb <- transitions_df %>%
+    filter(Location %in% c("mid (v)","mid (h)")
+    # ,gb_change <= -5.0
+    ) %>%
+    group_by(last_first_name,prior_year,current_year) %>%
+    summarise(tot = n())
+
+# 342
+# 969
+# }
 
 # ==============================================================================
 # EXEMPLAR IDENTIFICATION
 # ==============================================================================
 
-identify_exemplars <- function(transitions_df, n_exemplars = 3) {
+# identify_exemplars <- function(transitions_df, n_exemplars = 3) {
   # Identify 2-3 key player transitions representing different patterns
-  
+
   df <- transitions_df %>%
-    mutate(impact_quality_score = (barrel_change + hard_hit_change) / 2,
-           overall_improvement = gb_improvement_pct + chase_improvement_pct)
+    filter(!is.na(gb_improvement_pct), !is.na(chase_improvement_pct),
+           !is.na(whiff_change), !is.na(hard_hit_change), !is.na(slg_change),
+           !is.na(sweet_spot_change)
+          #  , Location %in% c("mid (h)", "mid (v)")
+          #  , Location == "overall"
+           ) %>%
+    group_by(last_first_name,prior_year,current_year) %>%
+    summarise(
+      gb_improvement = gb_change[Location == "mid (v)"],
+      chase_improvement = chase_improvement_pct[Location == "overall"],
+      ovr_slg_change = slg_change[Location == "overall"],
+      mid_slg_change = slg_change[Location == "mid (v)"],
+      mid_whiff_change = whiff_change[Location == "mid (v)"],
+      mid_hh_change = hard_hit_change[Location == "mid (v)"],
+      mid_swspot_change = sweet_spot_change[Location == "mid (v)"]
+    ) %>%
+    mutate(impact_quality_score = (mid_slg_change + mid_hh_change + mid_swspot_change) / 3,
+           overall_improvement = gb_improvement + chase_improvement)
+  # df <- transitions_df %>%
+  #   mutate(impact_quality_score = (slg_change + hard_hit_change + sweet_spot_change) / 3,
+  #          overall_improvement = gb_improvement_pct + chase_improvement_pct)
+  
+  # Create scatter plot: sweet_spot_change vs gb_change
+  
+  # if (nrow(df) > 0) {
+    exemplar_plot <- ggplot(df, aes(x = gb_improvement, y = mid_swspot_change, 
+                                          color = mid_slg_change, shape = factor(prior_year),
+                                          label = last_first_name)) +
+      geom_point(size = 3, alpha = 0.6) +
+      geom_text(vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+      labs(
+        title = "GB% Change vs Sweet Spot Change (Mid-Zone)",
+        x = "GB% Change (pp)",
+        y = "Sweet Spot% Change (pp)",
+        color = "SLG Change",
+        shape = "Prior Year"
+      ) +
+      scale_color_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.position = "right"
+      )
+    
+  #   print(exemplar_plot)
+  # }
   
   exemplars <- list()
   
   # Pattern 1: GB% improved + impact quality improved
   pattern1 <- df %>%
-    filter(gb_improvement_pct > 0, impact_quality_score > 0) %>%
-    arrange(desc(gb_improvement_pct)) %>%
+    filter(gb_improvement > 0, impact_quality_score > 0) %>%
+    arrange(desc(gb_improvement)) %>%
     slice(1)
   
   if (nrow(pattern1) > 0) {
@@ -346,8 +797,8 @@ identify_exemplars <- function(transitions_df, n_exemplars = 3) {
   
   # Pattern 2: GB% improved but impact quality degraded
   pattern2 <- df %>%
-    filter(gb_improvement_pct > 0, impact_quality_score < 0) %>%
-    arrange(desc(gb_improvement_pct)) %>%
+    filter(gb_improvement > 0, impact_quality_score < 0) %>%
+    arrange(desc(gb_improvement)) %>%
     slice(1)
   
   if (nrow(pattern2) > 0) {
@@ -369,8 +820,40 @@ identify_exemplars <- function(transitions_df, n_exemplars = 3) {
     )
   }
   
-  return(exemplars)
-}
+  # Pattern 4: Significant GB% improvement with minimal SLG/hard-hit change
+  # Define "minimal" as within -1 to +1 pp for both metrics, "significant" as >2 pp GB improvement
+  pattern4 <- df %>%
+    filter(gb_improvement < -10
+           ,abs(mid_slg_change) <= 0.045
+           ,abs(mid_hh_change) <= 5
+           ) %>%
+    arrange(desc(gb_improvement)) %>%
+    slice(1)
+  
+  if (nrow(pattern4) > 0) {
+    exemplars[[length(exemplars) + 1]] <- list(
+      pattern = "Significant GB% improvement with stable SLG/hard-hit",
+      data = as.list(pattern4)
+    )
+  }
+  
+  # Pattern 5: Strong GB%/Sweet Spot relationship (exemplifies the R²=0.23 correlation)
+  # Look for player with both notable GB% improvement AND corresponding sweet spot improvement
+  pattern5 <- df %>%
+    filter(gb_improvement < -3,  # Meaningful GB% reduction (negative = improvement)
+           mid_swspot_change > 2) %>%  # Meaningful sweet spot gain
+    arrange(desc(mid_swspot_change)) %>%
+    slice(1)
+  
+  if (nrow(pattern5) > 0) {
+    exemplars[[length(exemplars) + 1]] <- list(
+      pattern = "GB% improvement with accompanying sweet spot improvement (correlation exemplar)",
+      data = as.list(pattern5)
+    )
+  }
+  
+#   return(exemplars)
+# }
 
 # ==============================================================================
 # REPORTING
@@ -396,6 +879,17 @@ generate_report <- function(metrics_df, cohort_df, transitions_df, analysis_resu
   report <- c(report, sprintf("- **Total Player-Seasons:** %d", nrow(metrics_df)))
   report <- c(report, sprintf("- **Cohort Size (both KPIs elevated):** %d", nrow(cohort_df)))
   report <- c(report, sprintf("- **Year-to-Year Transitions:** %d\n", nrow(transitions_df)))
+  
+  # Frequency analysis
+  if (!is.null(analysis_results$frequency)) {
+    report <- c(report, "## Improvement Frequency Analysis")
+    freq <- analysis_results$frequency
+    report <- c(report, sprintf("**%s**\n", freq$summary))
+    report <- c(report, sprintf("- **Cohort baseline:** %d player-seasons", freq$cohort_size))
+    report <- c(report, sprintf("- **With year-to-year transition:** %d", freq$total_transitions))
+    report <- c(report, sprintf("- **Both KPIs improved next year:** %d (%.1f%%)", freq$both_kpi_improvements, freq$pct_both_improved))
+    report <- c(report, sprintf("- **Of those, gained in performance:** %d (%.1f%%)\n", freq$both_kpi_with_perf_gain, freq$pct_both_with_benefit))
+  }
   
   # Cohort characteristics
   if (nrow(cohort_df) > 0) {
@@ -550,6 +1044,14 @@ main <- function() {
   # Step 6: Run analysis
   cat("\n[6/8] Running analysis...\n")
   analysis_results <- list()
+  
+  # Frequency analysis
+  analysis_results$frequency <- analyze_improvement_frequency(transitions_df, cohort_df)
+  cat(sprintf("  ✓ Frequency analysis complete\n"))
+  cat(sprintf("    - %d/%d (%.1f%%) improved BOTH GB%% and Chase Rate\n", 
+              analysis_results$frequency$both_kpi_improvements,
+              analysis_results$frequency$total_transitions,
+              analysis_results$frequency$pct_both_improved))
   
   # Binning
   analysis_results$binning_gb <- bin_by_improvement(transitions_df, improvement_col = "gb_improvement_pct")

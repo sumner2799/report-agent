@@ -7,18 +7,39 @@ Build a system of routine reports to evaluate throughout the baseball season for
 
 ## Report Categories
 
-### 1. New Player Profiles
-When a player is new to the dataset and sample size is large enough (threshold TBD):
-- Provide a general synopsis of the player's profile
+### 1. New Player Profiles (Arsenal Reports)
+When a player is new to the dataset:
+- Provide a general synopsis of the player's profile with pitch arsenal metrics
 - Profile components differ by player type (pitcher vs. hitter)
 - Goal: Establish baseline understanding of a new player
 
-### 2. Significant Trend Analysis
+**MLB & Minor League:** Both leagues follow the same rules. Report generated on first appearance in data.
+
+### 2. Performance Reports
+When a player reaches 100+ BIP (balls in play):
+- Provide comprehensive performance metrics with percentile ranks
+- Include pitch-level (pitcher) or zone-level (hitter) breakdowns
+- Goal: Detailed performance analysis with statistical context
+
+**MLB & Minor League:** Both leagues follow the same rules. Report generated when 100+ BIP threshold is met.
+
+### 3. Significant Trend Analysis
 For existing players in the dataset:
 - Identify interesting trends (positive or negative) in key performance indicators (KPIs)
 - Only report on *significant* trends—not everything (time constraints recognized)
 - Significance thresholds TBD
 - Goal: Highlight meaningful changes in player performance
+
+**MLB & Minor League:** Both leagues follow the same rules and thresholds.
+
+### 4. League Level Distinction
+**Important:** Players are treated as separate entities at each league level.
+- A player's BIP count is tracked independently per league level
+- Example: Player "John Smith" first appears in AA and accrues 100 BIP → Performance report generated
+- If "John Smith" is promoted to AAA (different level), his BIP count RESETS to 0
+- He must accrue 100 BIP at the AAA level before generating a new performance report at that level
+- This ensures accurate representation of performance at each competitive level
+- Tracking logs maintain both `player_name` and `level` to distinguish between levels
 
 ---
 
@@ -88,12 +109,46 @@ For existing players in the dataset:
 
 **Frequency:** Weekly  
 **Format:** Statcast CSV (see [Data Format Spec](.system/DATA_FORMAT.md))  
-**Location:** Place files in `data/raw/` with naming convention `statcast_[START_DATE]_[END_DATE].csv`  
+
+**File Naming Convention:**
+- MLB Statcast: `statcast_[START_DATE]_[END_DATE].csv`
+- Minor League Statcast: `minorleague_[START_DATE]_[END_DATE].csv` or `mnl_[START_DATE]_[END_DATE].csv`
+- Date format: `YYYY-MM-DD` (e.g., `statcast_2025-03-29_2025-04-04.csv`)
+
+**Location:** Place files in `data/raw/`  
 **Processing:** Run pipeline with `Rscript scripts/process_statcast.R` (or VS Code task)
 
 ---
 
-## System Implementation
+## Reporting by League Level
+
+### Major League (MLB)
+- Data from MLB Statcast
+- All players tracked with level designation: `MLB`
+- Reports include league designation in output markdown
+
+### Minor League (MiLB)
+- Data from Minor League Statcast (AAA, AA, A+, etc.)
+- All players tracked with league level designation (AAA, AA, A+, etc.)
+- Metric calculations use MiLB-specific formulas (adapted from MLB equivalents)
+- Players at each level are tracked independently
+- Reports include league level designation in output markdown
+
+### Multi-Level Progression
+When a player appears at multiple league levels:
+1. System tracks each level separately using `player_name + level` as unique identifier
+2. Player's BIP count is maintained independently per level
+3. Threshold rules apply independently per level (100 BIP for performance report, etc.)
+4. No data carries over between levels—each level treated as fresh evaluation
+
+**Example Workflow:**
+- March 2025: John Smith first appears in AA data with 50 BIP → Stored as "John Smith (AA)" with 50 BIP
+- April 2025: John Smith accumulates to 100 BIP at AA → Performance report generated
+- May 2025: John Smith promoted to AAA, appears in new data file → Stored as "John Smith (AAA)" with 0 BIP (fresh count)
+- June 2025: John Smith accumulates 100 BIP at AAA → New performance report generated for AAA level
+- Both reports coexist in `/reports/` with level designation in filename
+
+---
 
 ✅ **Report Generation System** is now operational. Structure:
 - **Templates** (3 report types) — in `/templates/`
