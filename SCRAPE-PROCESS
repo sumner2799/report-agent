@@ -1,0 +1,19 @@
+1. sc_scrape.R
+- change date at bottom of function - last day to scrape (current date)
+
+2. SQL Import.R and MiLB SQL Import.R
+- delete previous scraped CSV files from downloads
+
+3. Upload MLB and MiLB to SQL workbench
+
+4. new_data.R
+- Find distinct game pk's to exclude from query - MiLB
+- delete previous weeks reports from repository
+
+5. process_statcast.R 
+
+6. shiny_aggs.R
+- HAS TO BE IN ACTUAL R APP
+
+7. Upload to Shiny server
+

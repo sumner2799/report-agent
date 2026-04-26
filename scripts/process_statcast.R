@@ -257,6 +257,78 @@ normalize_milb_data <- function(milb_raw) {
 }
 
 # =============================================================================
+# Team Extraction Helpers
+# =============================================================================
+
+get_pitcher_team_mlb <- function(pitcher_data) {
+  # Extracts pitcher's team based on inning_topbot
+  # If pitcher throws in "Top" inning, pitcher's team is home_team
+  # If pitcher throws in "Bot" inning, pitcher's team is away_team
+  
+  if (nrow(pitcher_data) == 0) return(NA_character_)
+  
+  first_row <- pitcher_data %>% dplyr::slice(1)
+  inning_topbot <- first_row$inning_topbot[1]
+  
+  if (inning_topbot == "Top") {
+    return(first_row$home_team[1])
+  } else {
+    return(first_row$away_team[1])
+  }
+}
+
+get_batter_team_mlb <- function(batter_data) {
+  # Extracts batter's team based on inning_topbot
+  # If batter hits in "Top" inning, batter's team is away_team
+  # If batter hits in "Bot" inning, batter's team is home_team
+  
+  if (nrow(batter_data) == 0) return(NA_character_)
+  
+  first_row <- batter_data %>% dplyr::slice(1)
+  inning_topbot <- first_row$inning_topbot[1]
+  
+  if (inning_topbot == "Top") {
+    return(first_row$away_team[1])
+  } else {
+    return(first_row$home_team[1])
+  }
+}
+
+get_pitcher_team_milb <- function(pitcher_data) {
+  # Extracts pitcher's team based on about.halfInning
+  # If pitcher throws in "top" inning, pitcher's team is home_parentOrg_name
+  # If pitcher throws in "bottom" inning, pitcher's team is away_parentOrg_name
+  
+  if (nrow(pitcher_data) == 0) return(NA_character_)
+  
+  first_row <- pitcher_data %>% dplyr::slice(1)
+  half_inning <- tolower(first_row$about.halfInning[1])
+  
+  if (half_inning == "top") {
+    return(first_row$home_parentOrg_name[1])
+  } else {
+    return(first_row$away_parentOrg_name[1])
+  }
+}
+
+get_batter_team_milb <- function(batter_data) {
+  # Extracts batter's team based on about.halfInning
+  # If batter hits in "top" inning, batter's team is away_parentOrg_name
+  # If batter hits in "bottom" inning, batter's team is home_parentOrg_name
+  
+  if (nrow(batter_data) == 0) return(NA_character_)
+  
+  first_row <- batter_data %>% slice(1)
+  half_inning <- tolower(first_row$about.halfInning[1])
+  
+  if (half_inning == "top") {
+    return(first_row$away_parentOrg_name[1])
+  } else {
+    return(first_row$home_parentOrg_name[1])
+  }
+}
+
+# =============================================================================
 # Player Identification
 # =============================================================================
 # data <- statcast_data
@@ -911,13 +983,23 @@ generate_new_player_reports <- function(players, data, all_data, max_game_date) 
     
     # Save report (if generated)
     if (!is.null(report)) {
+      # Extract team information
+      team <- NA_character_
+      if (player_type == "pitcher") {
+        team <- get_pitcher_team_mlb(pitcher_data)
+      } else {
+        team <- get_batter_team_mlb(batter_data)
+      }
+      team_str <- if (is.na(team)) "" else paste0(team, "_")
+      
       # Include level in filename for MiLB reports
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
       report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
-      filename <- sprintf("%s_%s%s_%s.md", 
+      filename <- sprintf("%s_%s%s%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
+                         team_str,
                          report_type,
                          str_replace_all(as.character(filename_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
@@ -1092,13 +1174,25 @@ generate_new_player_reports_milb <- function(players, data, all_data, max_game_d
     
     # Save report (if generated)
     if (!is.null(report)) {
+      # Extract team information
+      team <- NA_character_
+      if (player_type == "pitcher") {
+        pitcher_data <- data %>% filter(matchup.pitcher.id == player_id)
+        team <- get_pitcher_team_milb(pitcher_data)
+      } else {
+        batter_data <- data %>% filter(matchup.batter.id == player_id)
+        team <- get_batter_team_milb(batter_data)
+      }
+      team_str <- if (is.na(team)) "" else paste0(team, "_")
+      
       # Include level in filename for MiLB reports
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
       report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
-      filename <- sprintf("%s_%s%s_%s.md", 
+      filename <- sprintf("%s_%s%s%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
+                         team_str,
                          report_type,
                          str_replace_all(as.character(filename_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
@@ -1146,10 +1240,22 @@ generate_trend_reports <- function(players, all_data) {
     
     # Save report
     if (!is.null(report)) {
+      # Extract team information for trend report
+      team <- NA_character_
+      if (player_type == "pitcher") {
+        pitcher_data <- all_data %>% filter(pitcher == player_id, level == player_level) %>% dplyr::slice(1)
+        team <- get_pitcher_team_mlb(pitcher_data)
+      } else {
+        batter_data <- all_data %>% filter(batter == player_id, level == player_level) %>% dplyr::slice(1)
+        team <- get_batter_team_mlb(batter_data)
+      }
+      team_str <- if (is.na(team)) "" else paste0(team, "_")
+      
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
-      filename <- sprintf("%s_%strend_%s.md", 
+      filename <- sprintf("%s_%s%strend_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
+                         team_str,
                          str_replace_all(as.character(player_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
       
@@ -1190,10 +1296,22 @@ generate_trend_reports_mnl <- function(players, all_data) {
     
     # Save report
     if (!is.null(report)) {
+      # Extract team information for trend report
+      team <- NA_character_
+      if (player_type == "pitcher") {
+        pitcher_data <- all_data %>% filter(matchup.pitcher.id == player_id, home_level_name == player_level) %>% dplyr::slice(1)
+        team <- get_pitcher_team_milb(pitcher_data)
+      } else {
+        batter_data <- all_data %>% filter(matchup.batter.id == player_id, home_level_name == player_level) %>% dplyr::slice(1)
+        team <- get_batter_team_milb(batter_data)
+      }
+      team_str <- if (is.na(team)) "" else paste0(team, "_")
+      
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
-      filename <- sprintf("%s_%strend_%s.md", 
+      filename <- sprintf("%s_%s%strend_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
+                         team_str,
                          str_replace_all(as.character(player_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
       
