@@ -318,7 +318,7 @@ get_batter_team_milb <- function(batter_data) {
   
   if (nrow(batter_data) == 0) return(NA_character_)
   
-  first_row <- batter_data %>% slice(1)
+  first_row <- batter_data %>% dplyr::slice(1)
   half_inning <- tolower(first_row$about.halfInning[1])
   
   if (half_inning == "top") {
@@ -996,10 +996,11 @@ generate_new_player_reports <- function(players, data, all_data, max_game_date) 
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
       report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
-      filename <- sprintf("%s_%s%s%s_%s.md", 
+      filename <- sprintf("%s_%s%s%s_%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
                          team_str,
+                         player_type,
                          report_type,
                          str_replace_all(as.character(filename_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
@@ -1189,10 +1190,11 @@ generate_new_player_reports_milb <- function(players, data, all_data, max_game_d
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
       report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
-      filename <- sprintf("%s_%s%s%s_%s.md", 
+      filename <- sprintf("%s_%s%s%s_%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
                          team_str,
+                         player_type,
                          report_type,
                          str_replace_all(as.character(filename_name), " ", "-"))
       filepath <- file.path(OUTPUT_DIR, filename)
