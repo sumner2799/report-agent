@@ -1,0 +1,85 @@
+# Step 4: Deep dive on focal players and cohort expansion (MLB)
+# Input: data/processed/stability_transitions_MLB.csv
+# Output: data/processed/focal_players_analysis_MLB.csv
+
+library(dplyr)
+library(readr)
+
+DATA_DIR <- "data/processed"
+
+validate_focal_players_mlb <- function() {
+  cat("Validating focal players (MLB)...\n")
+  
+  # Load transitions
+  trans_file <- file.path(DATA_DIR, "stability_transitions_MLB.csv")
+  if (!file.exists(trans_file)) {
+    cat("Warning: stability_transitions_MLB.csv not found.\n")
+    cat("Run calculate_stability_metrics_MLB.R first.\n")
+    return(NULL)
+  }
+  
+  transitions <- read_csv(trans_file, show_col_types = FALSE)
+  
+  # Load classification for comparison
+  class_file <- file.path(DATA_DIR, "loft_profile_classification_MLB.csv")
+  classification <- read_csv(class_file, show_col_types = FALSE)
+  
+  # Focal players: Hamilton, Donovan, Horwitz
+  focal_names <- c("Hamilton, David", "Donovan, Brendan", "Horwitz, Spencer")
+  
+  focal_transitions <- transitions %>%
+    filter(batter_name %in% focal_names)
+  
+  cat("\n=== FOCAL PLAYERS DETAILED ANALYSIS ===\n")
+  print(focal_transitions %>%
+    select(batter_name, prior_year, current_year, prior_interaction_cohort,
+           prior_ss_pct, ss_pct_yoy_change, regressed_ss_5pp,
+           prior_loft_deficiency_score, loft_deficiency_yoy_change))
+  
+  # Cohort expansion: identify other Compensators and Structural players
+  cat("\n=== COMPENSATORS COHORT (Poor Loft + Excellent Angles) ===\n")
+  compensators <- classification %>%
+    filter(interaction_cohort == "Compensators") %>%
+    select(batter_name, season, sweet_spot_pct, sweet_spot_pct_rank,
+           loft_deficiency_score, oppo_fb_pct, oppo_fb_ev, attack_angle_avg)
+  
+  cat("Found", n_distinct(compensators$batter_name), "Compensators across all seasons.\n")
+  print(head(compensators, 10))
+  
+  cat("\n=== STRUCTURAL COHORT (Good Loft + Excellent Angles) ===\n")
+  structural <- classification %>%
+    filter(interaction_cohort == "Structural") %>%
+    select(batter_name, season, sweet_spot_pct, sweet_spot_pct_rank,
+           loft_deficiency_score, oppo_fb_pct, oppo_fb_ev, attack_angle_avg)
+  
+  cat("Found", n_distinct(structural$batter_name), "Structural players across all seasons.\n")
+  print(head(structural, 10))
+  
+  # Regression within cohorts
+  cat("\n=== REGRESSION ANALYSIS: WHO REGRESSED MOST? ===\n")
+  
+  worst_regressed <- transitions %>%
+    arrange(ss_pct_yoy_change) %>%
+    slice_head(n = 10) %>%
+    select(batter_name, prior_year, current_year, prior_interaction_cohort,
+           prior_ss_pct, ss_pct_yoy_change, prior_loft_deficiency_score)
+  
+  cat("Top 10 regressors (SS% decline):\n")
+  print(worst_regressed)
+  
+  # Output summary
+  focal_summary <- tibble(
+    focal_player = focal_names,
+    in_transitions = focal_names %in% transitions$batter_name,
+    total_transitions = sapply(focal_names, 
+      function(x) nrow(transitions %>% filter(batter_name == x)))
+  )
+  
+  write_csv(focal_summary, file.path(DATA_DIR, "focal_players_analysis_MLB.csv"))
+  
+  cat("\n✓ Step 4 (MLB) complete: Focal players validated.\n")
+  
+  return(list(focal = focal_transitions, compensators = compensators, structural = structural))
+}
+
+focal_analysis_mlb <- validate_focal_players_mlb()

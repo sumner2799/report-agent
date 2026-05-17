@@ -1,0 +1,117 @@
+# Step 3: Calculate Multi-Year Stability Metrics (MLB)
+# Input: data/processed/loft_profile_classification_MLB.csv
+# Output: data/processed/stability_transitions_MLB.csv
+
+library(dplyr)
+library(tidyr)
+library(readr)
+
+DATA_DIR <- "data/processed"
+
+# calculate_stability_metrics_mlb <- function(input_file = NULL) {
+  cat("Calculating MLB stability metrics...\n")
+  
+  if (is.null(input_file)) {
+    input_file <- file.path(DATA_DIR, "loft_profile_classification_MLB.csv")
+  }
+  
+  if (!file.exists(input_file)) {
+    stop("Input file not found: ", input_file)
+  }
+  
+  angles_data <- read_csv(input_file, show_col_types = FALSE)
+  cat("Loaded", nrow(angles_data), "MLB player-season records.\n")
+  
+  # Sort by player and season for transitions
+  player_seasons <- angles_data %>%
+    select(season, batter, batter_name, 
+           loft_deficiency_score, loft_cohort, interaction_cohort,
+           sweet_spot_pct, sweet_spot_pct_rank,
+           launch_angle_avg, launch_angle_std,
+           la_8_16_pct, la_17_32_pct,
+           hard_hit_pct, oppo_fb_pct, oppo_fb_ev,
+           barrel_pct, avg_exit_velocity) %>%
+    arrange(batter_name, season)
+  
+  # Create transitions
+  transitions_list <- list()
+  
+  for (player_id in unique(player_seasons$batter)) {
+    player_data <- player_seasons %>%
+      filter(batter == player_id) %>%
+      arrange(season)
+    
+    if (nrow(player_data) > 1) {
+      for (i in 1:(nrow(player_data) - 1)) {
+        prior <- player_data %>% slice(i)
+        current <- player_data %>% slice(i + 1)
+        
+        transition <- tibble(
+          batter = player_id,
+          batter_name = prior$batter_name,
+          prior_year = prior$season,
+          current_year = current$season,
+          prior_loft_deficiency_score = prior$loft_deficiency_score,
+          prior_loft_cohort = prior$loft_cohort,
+          prior_interaction_cohort = prior$interaction_cohort,
+          prior_ss_pct = prior$sweet_spot_pct,
+          
+          # YoY changes
+          ss_pct_yoy_change = current$sweet_spot_pct - prior$sweet_spot_pct,
+          ss_pct_yoy_change_rank = current$sweet_spot_pct_rank - prior$sweet_spot_pct_rank,
+          la_avg_yoy_change = current$launch_angle_avg - prior$launch_angle_avg,
+          hh_pct_yoy_change = current$hard_hit_pct - prior$hard_hit_pct,
+          oppo_fb_ev_yoy_change = current$oppo_fb_ev - prior$oppo_fb_ev,
+          oppo_fb_pct_yoy_change = current$oppo_fb_pct - prior$oppo_fb_pct,
+          barrel_pct_yoy_change = current$barrel_pct - prior$barrel_pct,
+          
+          current_ss_pct = current$sweet_spot_pct,
+          current_ss_pct_rank = current$sweet_spot_pct_rank,
+          current_interaction_cohort = current$interaction_cohort,
+          
+          # LA band shifts
+          la_8_16_pct_change = current$la_8_16_pct - prior$la_8_16_pct,
+          la_17_32_pct_change = current$la_17_32_pct - prior$la_17_32_pct,
+          
+          # Indicators
+          regressed_ss_5pp = if_else(ss_pct_yoy_change < -5, 1, 0),
+          regressed_ss_10pp = if_else(ss_pct_yoy_change < -10, 1, 0),
+          improved_ss_5pp = if_else(ss_pct_yoy_change > 5, 1, 0),
+          
+          improved_loft_deficiency = if_else(current$loft_deficiency_score < prior$loft_deficiency_score, 1, 0),
+          loft_deficiency_yoy_change = current$loft_deficiency_score - prior$loft_deficiency_score
+        )
+        
+        transitions_list[[length(transitions_list) + 1]] <- transition
+      }
+    }
+  }
+  
+  if (length(transitions_list) > 0) {
+    transitions_df <- bind_rows(transitions_list)
+    cat("\nIdentified", nrow(transitions_df), "MLB year-over-year transitions.\n")
+    
+    write_csv(transitions_df, file.path(DATA_DIR, "stability_transitions_MLB.csv"))
+    
+    cat("\n=== MLB STABILITY SUMMARY BY PRIOR COHORT ===\n")
+    by_cohort <- transitions_df %>%
+      group_by(prior_interaction_cohort) %>%
+      summarise(
+        n = n(),
+        mean_ss_change = mean(ss_pct_yoy_change, na.rm = TRUE),
+        pct_regressed_5pp = 100 * mean(regressed_ss_5pp, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(n))
+    print(by_cohort)
+    
+  } else {
+    cat("\nNo multi-year transitions found.\n")
+    transitions_df <- tibble()
+  }
+  
+  cat("\n✓ Step 3 (MLB) complete.\n")
+  return(transitions_df)
+}
+
+stability_mlb <- calculate_stability_metrics_mlb()

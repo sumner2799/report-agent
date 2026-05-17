@@ -1,0 +1,137 @@
+# Step 5: Regression Models - Loft as predictor of angles volatility (MLB)
+# Input: data/processed/stability_transitions_MLB.csv
+# Output: data/processed/regression_models_summary_MLB.csv
+
+library(dplyr)
+library(readr)
+
+DATA_DIR <- "data/processed"
+
+build_regression_models_mlb <- function() {
+  cat("Building regression models (MLB)...\n")
+  
+  trans_file <- file.path(DATA_DIR, "stability_transitions_MLB.csv")
+  if (!file.exists(trans_file)) {
+    cat("Input file not found: ", trans_file, "\n")
+    return(NULL)
+  }
+  
+  transitions <- read_csv(trans_file, show_col_types = FALSE)
+  
+  if (nrow(transitions) == 0) {
+    cat("No transitions available for modeling.\n")
+    return(NULL)
+  }
+  
+  models_summary <- list()
+  
+  # Model 1: Does loft deficiency predict SS% regression?
+  cat("\n=== MODEL 1: Loft Deficiency → SS% Regression Risk ===\n")
+  
+  model_1 <- glm(regressed_ss_5pp ~ prior_loft_deficiency_score,
+                  data = transitions,
+                  family = binomial(link = "logit"))
+  
+  cat("Logistic Regression (DV: regressed_ss_5pp)\n")
+  cat("Coefficient on loft_deficiency:", coef(model_1)[2], "\n")
+  cat("P-value:", summary(model_1)$coefficients[2, 4], "\n")
+  cat("Interpretation: Higher loft deficiency →", 
+      if_else(coef(model_1)[2] > 0, "INCREASES", "DECREASES"),
+      "odds of regression\n")
+  
+  models_summary$model_1 <- list(
+    model = model_1,
+    coefficient = coef(model_1)[2],
+    pvalue = summary(model_1)$coefficients[2, 4]
+  )
+  
+  # Model 2: Loft deficiency predicts SS% volatility (multi-year SD)
+  cat("\n=== MODEL 2: Loft Deficiency → SS% Volatility ===\n")
+  
+  # Calculate rolling volatility (if 2+ transitions per player)
+  volatility_data <- transitions %>%
+    group_by(batter_name) %>%
+    summarise(
+      ss_volatility = sd(ss_pct_yoy_change, na.rm = TRUE),
+      mean_loft_deficiency = mean(prior_loft_deficiency_score, na.rm = TRUE),
+      n_transitions = n(),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(ss_volatility) & n_transitions >= 2)
+  
+  if (nrow(volatility_data) > 3) {
+    model_2 <- lm(ss_volatility ~ mean_loft_deficiency, data = volatility_data)
+    cat("OLS Regression (DV: SS% volatility across years)\n")
+    cat("Coefficient:", coef(model_2)[2], "\n")
+    cat("R-squared:", summary(model_2)$r.squared, "\n")
+    cat("P-value:", summary(model_2)$coefficients[2, 4], "\n")
+    
+    models_summary$model_2 <- list(
+      model = model_2,
+      coefficient = coef(model_2)[2],
+      r_squared = summary(model_2)$r.squared,
+      pvalue = summary(model_2)$coefficients[2, 4]
+    )
+  } else {
+    cat("Insufficient multi-year player data for volatility model.\n")
+  }
+  
+  # Model 3: LA band fragility - do low-loft players relying on 8-16° band regress more?
+  cat("\n=== MODEL 3: LA Band Composition → Fragility ===\n")
+  
+  low_loft_trans <- transitions %>%
+    filter(prior_loft_deficiency_score > 0.60) %>%
+    mutate(relies_on_lower_band = if_else(prior_la_8_16_pct > prior_la_17_32_pct, 1, 0))
+  
+  if (nrow(low_loft_trans) > 3) {
+    model_3 <- glm(regressed_ss_5pp ~ relies_on_lower_band,
+                    data = low_loft_trans,
+                    family = binomial())
+    cat("For low-loft players only:\n")
+    cat("Do lower-band (8-16°) reliers regress more?\n")
+    cat("Coefficient:", coef(model_3)[2], "\n")
+    cat("P-value:", summary(model_3)$coefficients[2, 4], "\n")
+    
+    models_summary$model_3 <- list(
+      model = model_3,
+      coefficient = coef(model_3)[2],
+      pvalue = summary(model_3)$coefficients[2, 4],
+      sample_size = nrow(low_loft_trans)
+    )
+  }
+  
+  # Output summary table
+  summary_table <- tibble(
+    model = c("Model 1: Loft → Regression", "Model 2: Loft → Volatility", "Model 3: LA Band Fragility"),
+    coefficient = c(
+      models_summary$model_1$coefficient,
+      if_else("model_2" %in% names(models_summary), models_summary$model_2$coefficient, NA_real_),
+      if_else("model_3" %in% names(models_summary), models_summary$model_3$coefficient, NA_real_)
+    ),
+    pvalue = c(
+      models_summary$model_1$pvalue,
+      if_else("model_2" %in% names(models_summary), models_summary$model_2$pvalue, NA_real_),
+      if_else("model_3" %in% names(models_summary), models_summary$model_3$pvalue, NA_real_)
+    ),
+    interpretation = c(
+      if_else(models_summary$model_1$pvalue < 0.05, "SIGNIFICANT", "Not significant"),
+      if_else("model_2" %in% names(models_summary) && models_summary$model_2$pvalue < 0.05, "SIGNIFICANT", "Not significant"),
+      if_else("model_3" %in% names(models_summary) && models_summary$model_3$pvalue < 0.05, "SIGNIFICANT", "Not significant")
+    )
+  )
+  
+  write_csv(summary_table, file.path(DATA_DIR, "regression_models_summary_MLB.csv"))
+  
+  cat("\n=== HYPOTHESIS TEST RESULT ===\n")
+  if (models_summary$model_1$pvalue < 0.05) {
+    cat("✓ HYPOTHESIS SUPPORTED: Loft deficiency predicts angles regression\n")
+  } else {
+    cat("✗ Loft deficiency NOT significant predictor of regression\n")
+  }
+  
+  cat("\n✓ Step 5 (MLB) complete: Regression models fitted.\n")
+  
+  return(models_summary)
+}
+
+models_mlb <- build_regression_models_mlb()

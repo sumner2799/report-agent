@@ -31,16 +31,17 @@ AVERAGE_ANGLES_LOWER <- 40
 # Main Classification Function
 # =============================================================================
 
-classify_loft_profiles <- function() {
-  cat("Classifying loft profiles...\n")
+# classify_loft_profiles <- function() {
+#   cat("Classifying loft profiles...\n")
   
-  # Load angles history data
-  input_file <- file.path(DATA_DIR, "angles_history_player_season.csv")
-  if (!file.exists(input_file)) {
-    stop("Input file not found: ", input_file)
-  }
+#   # Load angles history data
+#   input_file <- file.path(DATA_DIR, "angles_history_player_season.csv")
+#   if (!file.exists(input_file)) {
+#     stop("Input file not found: ", input_file)
+#   }
   
   angles_data <- read_csv(input_file, show_col_types = FALSE)
+  angles_data <- read.csv("report-agent/data/processed/angles_history_player_season.csv") 
   cat("Loaded", nrow(angles_data), "player-season records.\n")
   
   # Step 1: Calculate loft deficiency score
@@ -84,42 +85,43 @@ classify_loft_profiles <- function() {
         (loft_cohort == "Neutral Loft" | loft_cohort == "Good Loft") & angles_tier %in% c("Average", "Below Average") ~ "Underperformers",
         TRUE ~ "Other"
       )
-    ) %>%
-    select(
-      season, batter, batter_name, total_bbe,
+    )
+    #  %>%
+    # select(
+    #   season, last_first_name, total_bbe,
       
-      # Loft metrics (raw + ranks + normalized)
-      oppo_fb_pct, oppo_fb_pct_rank, oppo_fb_pct_norm,
-      oppo_fb_ev, oppo_fb_ev_pct_rank, oppo_fb_ev_norm,
-      high_aa_pct, high_aa_pct_rank, high_aa_pct_norm,
-      attack_angle_avg, attack_angle_avg_rank,
-      attack_angle_std,
+    #   # Loft metrics (raw + ranks + normalized)
+    #   oppo_fb_pct, oppo_fb_pct_rank, oppo_fb_pct_norm,
+    #   oppo_fb_ev, oppo_fb_ev_pct_rank, oppo_fb_ev_norm,
+    #   high_aa_pct, high_aa_pct_rank, high_aa_pct_norm,
+    #   attack_angle_avg, attack_angle_avg_rank,
+    #   attack_angle_std,
       
-      # Loft deficiency score
-      loft_deficiency_score, loft_cohort,
+    #   # Loft deficiency score
+    #   loft_deficiency_score, loft_cohort,
       
-      # Angles quality metrics
-      sweet_spot_pct, sweet_spot_pct_rank,
-      launch_angle_avg, launch_angle_avg_rank,
-      launch_angle_std,
-      la_8_16_pct, la_17_32_pct,
+    #   # Angles quality metrics
+    #   sweet_spot_pct, sweet_spot_pct_rank,
+    #   launch_angle_avg, launch_angle_avg_rank,
+    #   launch_angle_std,
+    #   la_8_16_pct, la_17_32_pct,
       
-      # Angles tier
-      angles_tier,
+    #   # Angles tier
+    #   angles_tier,
       
-      # Interaction cohort
-      interaction_cohort,
+    #   # Interaction cohort
+    #   interaction_cohort,
       
-      # Contact quality (reference)
-      hard_hit_pct, hard_hit_pct_rank,
-      barrel_pct, barrel_pct_rank,
-      avg_exit_velocity, avg_ev_rank
-    ) %>%
-    arrange(season, loft_cohort, interaction_cohort, batter_name)
+    #   # Contact quality (reference)
+    #   hard_hit_pct, hard_hit_pct_rank,
+    #   barrel_pct, barrel_pct_rank,
+    #   avg_exit_velocity, avg_ev_rank
+    # ) %>%
+    # arrange(season, loft_cohort, interaction_cohort, batter_name)
   
   # Write output
   output_file <- file.path(DATA_DIR, "loft_profile_classification.csv")
-  write_csv(loft_classified, output_file)
+  write.csv(loft_classified, "report-agent/data/processed/loft_profile_classification.csv")
   cat("\nOutput saved to:", output_file, "\n")
   
   # Print summary statistics

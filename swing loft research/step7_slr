@@ -1,0 +1,180 @@
+# Step 6: Cross-League Translation Analysis
+# Identifies MiLB→MLB promoters and tests league exposure hypothesis
+# Inputs: angles_history_player_season_MiLB.csv, angles_history_player_season_MLB.csv
+# Output: data/processed/cross_league_transitions.csv
+
+library(dplyr)
+library(readr)
+
+DATA_DIR <- "data/processed"
+
+analyze_cross_league_translations <- function(
+    milb_file = NULL, 
+    mlb_file = NULL,
+    crosswalk_file = NULL) {
+  
+  cat("Analyzing cross-league transitions (MiLB→MLB)...\n")
+  
+  # Load data
+  if (is.null(milb_file)) {
+    milb_file <- file.path(DATA_DIR, "angles_history_player_season_MiLB.csv")
+  }
+  if (is.null(mlb_file)) {
+    mlb_file <- file.path(DATA_DIR, "angles_history_player_season_MLB.csv")
+  }
+  
+  milb_data <- read_csv(milb_file, show_col_types = FALSE) %>%
+    mutate(league = "MiLB")
+  mlb_data <- read_csv(mlb_file, show_col_types = FALSE) %>%
+    mutate(league = "MLB")
+  
+  cat("Loaded", nrow(milb_data), "MiLB player-seasons,",
+      nrow(mlb_data), "MLB player-seasons.\n")
+  
+  # Load loft classifications
+  milb_class <- read_csv(
+    file.path(DATA_DIR, "loft_profile_classification_MiLB.csv"),
+    show_col_types = FALSE
+  )
+  mlb_class <- read_csv(
+    file.path(DATA_DIR, "loft_profile_classification_MLB.csv"),
+    show_col_types = FALSE
+  )
+  
+  # Find promoters by player name matching (or use crosswalk if provided)
+  milb_players <- distinct(milb_data %>% select(batter_name))
+  mlb_players <- distinct(mlb_data %>% select(batter_name))
+  
+  # Players appearing in both leagues
+  promoters_names <- intersect(milb_players$batter_name, mlb_players$batter_name)
+  
+  cat("Found", length(promoters_names), "players in both MiLB and MLB.\n")
+  
+  if (length(promoters_names) == 0) {
+    cat("No cross-league promoters found. Ensure player names match between datasets.\n")
+    return(tibble())
+  }
+  
+  # Build transition records
+  transitions_list <- list()
+  
+  for (player_name in promoters_names) {
+    milb_years <- milb_data %>%
+      filter(batter_name == player_name) %>%
+      arrange(desc(season)) %>%
+      slice_head(n = 1)  # Most recent MiLB season
+    
+    mlb_years <- mlb_data %>%
+      filter(batter_name == player_name) %>%
+      arrange(season) %>%
+      slice_head(n = 1)  # Earliest MLB season (year of promotion)
+    
+    if (nrow(milb_years) > 0 && nrow(mlb_years) > 0) {
+      # Get classifications
+      milb_class_data <- milb_class %>%
+        filter(batter_name == player_name) %>%
+        arrange(desc(season)) %>%
+        slice_head(n = 1)
+      
+      mlb_class_data <- mlb_class %>%
+        filter(batter_name == player_name) %>%
+        arrange(season) %>%
+        slice_head(n = 1)
+      
+      transition <- tibble(
+        batter_name = player_name,
+        last_milb_season = milb_years$season[1],
+        first_mlb_season = mlb_years$season[1],
+        
+        # MiLB metrics
+        milb_sweet_spot_pct = milb_years$sweet_spot_pct[1],
+        milb_sweet_spot_rank = milb_years$sweet_spot_pct_rank[1],
+        milb_oppo_fb_pct = milb_years$oppo_fb_pct[1],
+        milb_oppo_fb_ev = milb_years$oppo_fb_ev[1],
+        milb_hard_hit_pct = milb_years$hard_hit_pct[1],
+        milb_loft_deficiency_score = milb_class_data$loft_deficiency_score[1],
+        milb_loft_cohort = milb_class_data$loft_cohort[1],
+        
+        # MLB year 1 metrics
+        mlb_sweet_spot_pct = mlb_years$sweet_spot_pct[1],
+        mlb_sweet_spot_rank = mlb_years$sweet_spot_pct_rank[1],
+        mlb_oppo_fb_pct = mlb_years$oppo_fb_pct[1],
+        mlb_oppo_fb_ev = mlb_years$oppo_fb_ev[1],
+        mlb_hard_hit_pct = mlb_years$hard_hit_pct[1],
+        mlb_loft_deficiency_score = mlb_class_data$loft_deficiency_score[1],
+        mlb_loft_cohort = mlb_class_data$loft_cohort[1],
+        
+        # Changes (promotion impact)
+        ss_pct_change = mlb_years$sweet_spot_pct[1] - milb_years$sweet_spot_pct[1],
+        oppo_fb_ev_change = mlb_years$oppo_fb_ev[1] - milb_years$oppo_fb_ev[1],
+        hard_hit_pct_change = mlb_years$hard_hit_pct[1] - milb_years$hard_hit_pct[1],
+        loft_deficiency_change = mlb_class_data$loft_deficiency_score[1] - 
+                                 milb_class_data$loft_deficiency_score[1],
+        
+        # Indicators
+        regressed_ss = if_else(ss_pct_change < -5, 1, 0),
+        improved_loft = if_else(loft_deficiency_change < 0, 1, 0)
+      )
+      
+      transitions_list[[length(transitions_list) + 1]] <- transition
+    }
+  }
+  
+  if (length(transitions_list) > 0) {
+    transitions_df <- bind_rows(transitions_list)
+    write_csv(transitions_df, file.path(DATA_DIR, "cross_league_transitions.csv"))
+    
+    cat("\n=== CROSS-LEAGUE TRANSLATION ANALYSIS ===\n")
+    cat("Total promoters analyzed:", nrow(transitions_df), "\n")
+    
+    # Breakdown by prior MiLB loft profile
+    cat("\n=== REGRESSION BY MiLB LOFT PROFILE ===\n")
+    by_loft <- transitions_df %>%
+      group_by(milb_loft_cohort) %>%
+      summarise(
+        n = n(),
+        mean_ss_change = mean(ss_pct_change, na.rm = TRUE),
+        pct_regressed = 100 * mean(regressed_ss, na.rm = TRUE),
+        mean_ev_change = mean(oppo_fb_ev_change, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(n))
+    
+    print(by_loft)
+    
+    # Key hypothesis test
+    cat("\n=== HYPOTHESIS TEST: Low-Loft Promoters Regress More ===\n")
+    
+    low_loft_promo <- transitions_df %>%
+      filter(milb_loft_cohort == "Poor Loft")
+    high_loft_promo <- transitions_df %>%
+      filter(milb_loft_cohort %in% c("Good Loft", "Neutral Loft"))
+    
+    if (nrow(low_loft_promo) > 0 && nrow(high_loft_promo) > 0) {
+      low_mean_ss <- mean(low_loft_promo$ss_pct_change, na.rm = TRUE)
+      high_mean_ss <- mean(high_loft_promo$ss_pct_change, na.rm = TRUE)
+      
+      cat("Low-loft promoters: mean SS% change =", round(low_mean_ss, 2), "pp\n")
+      cat("High-loft promoters: mean SS% change =", round(high_mean_ss, 2), "pp\n")
+      cat("Difference:", round(low_mean_ss - high_mean_ss, 2), "pp\n")
+      
+      if (low_mean_ss < high_mean_ss - 2) {
+        cat("✓ HYPOTHESIS SUPPORTED: Low-loft players regress more upon MLB promotion\n")
+      } else if (low_mean_ss > high_mean_ss + 2) {
+        cat("✗ HYPOTHESIS CONTRADICTED: Low-loft players improve more\n")
+      } else {
+        cat("~ NO SIGNIFICANT DIFFERENCE\n")
+      }
+    }
+    
+    cat("\n✓ Step 6 complete: Cross-league analysis finished.\n")
+    
+  } else {
+    cat("No promoters identified.\n")
+    transitions_df <- tibble()
+  }
+  
+  return(transitions_df)
+}
+
+cross_league_trans <- analyze_cross_league_translations()

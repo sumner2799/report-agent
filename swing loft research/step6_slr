@@ -1,0 +1,172 @@
+# MiLB Step 1: Build Historical Multi-Year Player Dataset (MiLB)
+# Input: User-provided database query (angles_MiLB_2021_2026.csv or similar)
+# Output: data/processed/angles_history_player_season_MiLB.csv
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(lubridate)
+
+DATA_DIR <- "data/processed"
+MIN_BBE_THRESHOLD <- 50
+
+# (Same helper functions as MLB version)
+is_bbe <- function(events) {
+  !is.na(events) & 
+    events %in% c("single", "double", "triple", "home_run",
+      "field_out", "force_out", "field_error", "grounded_into_double_play",
+      "double_play", "sac_bunt", "sac_fly", "fielders_choice_out",
+      "fielders_choice", "triple_play", "sacrifice_bunt_double_play")
+}
+
+is_sweet_spot <- function(launch_angle) {
+  !is.na(launch_angle) & launch_angle >= 8 & launch_angle <= 32
+}
+
+is_hard_hit <- function(exit_velocity) {
+  !is.na(exit_velocity) & exit_velocity >= 95
+}
+
+is_barrel <- function(launch_angle, exit_velocity) {
+  !is.na(launch_angle) & !is.na(exit_velocity) &
+    exit_velocity >= 92 & launch_angle >= 26 & launch_angle <= 30
+}
+
+is_fly_ball <- function(bb_type) {
+  !is.na(bb_type) & bb_type == "fly_ball"
+}
+
+is_oppo_fb <- function(hc_x, stand) {
+  !is.na(hc_x) & !is.na(stand) & (
+    (stand == "R" & hc_x < -30) |
+    (stand == "L" & hc_x > 30)
+  )
+}
+
+is_high_aa <- function(attack_angle) {
+  !is.na(attack_angle) & attack_angle >= 14
+}
+
+la_band <- function(launch_angle) {
+  ifelse(is.na(launch_angle), NA,
+    ifelse(launch_angle >= 8 & launch_angle <= 16, "8_16",
+      ifelse(launch_angle >= 17 & launch_angle <= 32, "17_32", "other")))
+}
+
+build_angles_history_milb <- function(input_csv_path = NULL) {
+  cat("Building MiLB angles history dataset...\n")
+  
+  # Load data - user can specify path or check default
+  if (is.null(input_csv_path)) {
+    possible_paths <- list.files(file.path(DATA_DIR, ".."), 
+                                  pattern = "angles.*MiLB|MiLB.*angles",
+                                  full.names = TRUE)
+    if (length(possible_paths) > 0) {
+      input_csv_path <- possible_paths[1]
+      cat("Using:", input_csv_path, "\n")
+    } else {
+      stop("No MiLB angles CSV found. ",
+           "Please provide CSV from database query.")
+    }
+  }
+  
+  # Load and process
+  all_data <- read_csv(input_csv_path, show_col_types = FALSE) %>%
+    mutate(
+      season = year(as.Date(game_date)),
+      exit_velocity = coalesce(exit_velocity, launch_speed),
+      level = coalesce(level, "MiLB")
+    )
+  
+  cat("Loaded", nrow(all_data), "MiLB records.\n")
+  
+  # Filter to BBE and calculate metrics (same logic as MLB)
+  bbe_data <- all_data %>%
+    filter(is_bbe(events)) %>%
+    mutate(
+      is_bbe = TRUE,
+      is_fb = is_fly_ball(bb_type),
+      is_oppo_fb = is_fb & is_oppo_fb(hc_x, stand),
+      is_ss = is_sweet_spot(launch_angle),
+      is_hh = is_hard_hit(exit_velocity),
+      is_barrel = is_barrel(launch_angle, exit_velocity),
+      is_high_aa = is_high_aa(attack_angle),
+      la_band = la_band(launch_angle)
+    )
+  
+  cat("Filtered to", nrow(bbe_data), "MiLB BBE.\n")
+  
+  # Aggregate by player-season-level
+  angles_by_season <- bbe_data %>%
+    filter(!is.na(batter_name)) %>%
+    group_by(season, batter_name, batter, level) %>%
+    summarise(
+      total_bbe = n(),
+      
+      oppo_fb_count = sum(is_oppo_fb, na.rm = TRUE),
+      oppo_fb_pct = ifelse(sum(is_fb, na.rm = TRUE) > 0, 
+                            100 * sum(is_oppo_fb, na.rm = TRUE) / sum(is_fb, na.rm = TRUE),
+                            NA),
+      oppo_fb_ev = mean(exit_velocity[is_oppo_fb], na.rm = TRUE),
+      
+      attack_angle_avg = mean(attack_angle, na.rm = TRUE),
+      attack_angle_std = sd(attack_angle, na.rm = TRUE),
+      high_aa_pct = 100 * sum(is_high_aa, na.rm = TRUE) / n(),
+      
+      sweet_spot_pct = 100 * sum(is_ss, na.rm = TRUE) / n(),
+      launch_angle_avg = mean(launch_angle, na.rm = TRUE),
+      launch_angle_std = sd(launch_angle, na.rm = TRUE),
+      la_8_16_pct = 100 * sum(la_band == "8_16", na.rm = TRUE) / n(),
+      la_17_32_pct = 100 * sum(la_band == "17_32", na.rm = TRUE) / n(),
+      
+      hard_hit_pct = 100 * sum(is_hh, na.rm = TRUE) / n(),
+      barrel_pct = 100 * sum(is_barrel, na.rm = TRUE) / n(),
+      avg_exit_velocity = mean(exit_velocity, na.rm = TRUE),
+      
+      .groups = "drop"
+    ) %>%
+    filter(total_bbe >= MIN_BBE_THRESHOLD)
+  
+  cat("Aggregated to", nrow(angles_by_season), "MiLB player-seasons with ≥", 
+      MIN_BBE_THRESHOLD, "BBE.\n")
+  
+  # Calculate percentiles within season-level
+  angles_with_percentiles <- angles_by_season %>%
+    group_by(season, level) %>%
+    mutate(
+      oppo_fb_pct_rank = round(percent_rank(oppo_fb_pct) * 100, 1),
+      oppo_fb_ev_pct_rank = round(percent_rank(oppo_fb_ev) * 100, 1),
+      high_aa_pct_rank = round(percent_rank(high_aa_pct) * 100, 1),
+      sweet_spot_pct_rank = round(percent_rank(sweet_spot_pct) * 100, 1),
+      launch_angle_avg_rank = round(percent_rank(launch_angle_avg) * 100, 1),
+      hard_hit_pct_rank = round(percent_rank(hard_hit_pct) * 100, 1),
+      barrel_pct_rank = round(percent_rank(barrel_pct) * 100, 1),
+      avg_ev_rank = round(percent_rank(avg_exit_velocity) * 100, 1),
+      .groups = "drop"
+    ) %>%
+    ungroup()
+  
+  # Select final columns
+  final_output <- angles_with_percentiles %>%
+    select(season, level, batter, batter_name,
+           total_bbe, oppo_fb_pct, oppo_fb_pct_rank, oppo_fb_ev, oppo_fb_ev_pct_rank,
+           attack_angle_avg, high_aa_pct, high_aa_pct_rank,
+           sweet_spot_pct, sweet_spot_pct_rank, launch_angle_avg,
+           la_8_16_pct, la_17_32_pct, hard_hit_pct, hard_hit_pct_rank,
+           barrel_pct, barrel_pct_rank, avg_exit_velocity, avg_ev_rank) %>%
+    arrange(season, level, batter_name)
+  
+  write_csv(final_output, file.path(DATA_DIR, "angles_history_player_season_MiLB.csv"))
+  
+  cat("\n=== MiLB SUMMARY ===\n")
+  cat("Seasons:", paste(unique(final_output$season), collapse = ", "), "\n")
+  cat("Levels represented:", paste(unique(final_output$level), collapse = ", "), "\n")
+  cat("Total player-seasons:", nrow(final_output), "\n")
+  
+  cat("\n✓ MiLB Step 1 complete: Angles history created.\n")
+  
+  return(final_output)
+}
+
+# Execute
+milb_angles <- build_angles_history_milb()
