@@ -243,6 +243,7 @@ df <- batter_profile %>%
         attack_angle_avg_rank = round(percent_rank(`High AA%`) * 100, 1),
         sweet_spot_pct_rank = round(percent_rank(`Sweet Spot%`) * 100, 1),
         launch_angle_avg_rank = round(percent_rank(`Avg LA`) * 100, 1),
+        hard_hit_pct_rank = round(percent_rank(`HH LA`) * 100, 1),
         .groups = "drop"
       ) %>%
       ungroup()
@@ -279,7 +280,7 @@ df <- batter_profile %>%
   
 #   # 6. Write to CSV
 #   output_path <- file.path(OUTPUT_DIR, "angles_history_player_season.csv")
-#   write.csv(angles_with_percentiles, "report-agent/data/processed/angles_history_player_season.csv")
+#   write.csv(angles_with_percentiles, "data/processed/angles_history_player_season.csv")
 #   cat("\nOutput saved to:", output_path, "\n")
   
 #   # 7. Print summary statistics

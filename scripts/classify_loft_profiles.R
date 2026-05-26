@@ -13,19 +13,32 @@ library(readr)
 
 DATA_DIR <- "data/processed"
 
-# Loft deficiency score weights
-OPPO_FB_PCT_WEIGHT <- 0.40
-OPPO_FB_EV_WEIGHT <- 0.35
-HIGH_AA_PCT_WEIGHT <- 0.25
+# =============================================================================
+# LOFT DEFINITION (Simple thresholds, no score)
+# =============================================================================
+# Poor Loft = Oppo FB% >= 60th percentile AND Oppo FB EV <= 40th percentile
+OPPO_FB_PCT_POOR_THRESHOLD <- 60  # percentile
+OPPO_FB_EV_POOR_THRESHOLD <- 40   # percentile (inverted: low EV is bad)
 
-# Loft cohort thresholds
-POOR_LOFT_THRESHOLD <- 0.60
-GOOD_LOFT_THRESHOLD <- 0.35
+# =============================================================================
+# ANGLES QUALITY SCORE (Weighted composite of 3 KPIs)
+# =============================================================================
+# 1. Hard Hit Launch Angle (HHLA) - % of BBE in hard-hit sweet spot zone
+# 2. Average Launch Angle (Avg LA) - mean LA, ideally 10-20°
+# 3. Ideal Attack Angle Rate - % of PA with "ideal" attack angle (>15°)
 
-# Sweet spot (angles quality) thresholds
-EXCELLENT_ANGLES_THRESHOLD <- 75
-GOOD_ANGLES_THRESHOLD <- 60
-AVERAGE_ANGLES_LOWER <- 40
+# Weights for angles score
+HHLA_WEIGHT <- 0.25
+AVG_LA_WEIGHT <- 0.25
+HHLA_WEIGHT_old <- 0.33
+AVG_LA_WEIGHT_old <- 0.33
+IDEAL_AA_WEIGHT <- 0.25
+SWSPOT_WEIGHT <- 0.25
+SWSPOT_WEIGHT_old <- 0.34
+
+# Angles tier thresholds
+EXCELLENT_ANGLES_THRESHOLD <- 75  # 75th+ percentile
+GOOD_ANGLES_THRESHOLD <- 50.25       # 60th+ percentile
 
 # =============================================================================
 # Main Classification Function
@@ -50,40 +63,52 @@ AVERAGE_ANGLES_LOWER <- 40
   
   loft_classified <- angles_data %>%
     mutate(
-      # Normalize percentile ranks to 0-1 scale
-      oppo_fb_pct_norm = oppo_fb_pct_rank / 100,
-      oppo_fb_ev_norm = (100 - oppo_fb_ev_pct_rank) / 100,  # Inverse (low EV = bad)
-      high_aa_pct_norm = (100 - high_aa_pct_rank) / 100,    # Inverse (low AA% = bad)
+      # LOFT DEFINITION (Simple thresholds - no score needed)
+      # Poor Loft: Oppo FB% >= 60th percentile AND Oppo FB EV <= 40th percentile
+      poor_loft = (oppo_fb_pct_rank >= OPPO_FB_PCT_POOR_THRESHOLD & 
+                   oppo_fb_ev_pct_rank <= OPPO_FB_EV_POOR_THRESHOLD),
       
-      # Composite loft deficiency score (0-1 scale)
-      loft_deficiency_score = (
-        oppo_fb_pct_norm * OPPO_FB_PCT_WEIGHT +
-        oppo_fb_ev_norm * OPPO_FB_EV_WEIGHT +
-        high_aa_pct_norm * HIGH_AA_PCT_WEIGHT
-      ),
-      
-      # Classify loft profile
       loft_cohort = case_when(
-        loft_deficiency_score < GOOD_LOFT_THRESHOLD ~ "Good Loft",
-        loft_deficiency_score < POOR_LOFT_THRESHOLD ~ "Neutral Loft",
-        TRUE ~ "Poor Loft"
+        poor_loft ~ "Poor Loft",
+        TRUE ~ "Non-Poor Loft"
       ),
       
-      # Classify angles performance
+      # ANGLES QUALITY SCORE (Weighted composite)
+      # Using percentile ranks for: HHLA, Avg LA, Ideal AA Rate
+      hhla_norm = hard_hit_pct_rank / 100,           # Hard Hit Launch Angle
+      avg_la_norm = launch_angle_avg_rank / 100,     # Average Launch Angle
+      ideal_aa_norm = high_aa_pct_rank / 100,        # Ideal Attack Angle Rate (>15°)
+      sweet_spot_norm = sweet_spot_pct_rank / 100,  # Sweet Spot % (added for 2025+)
+      
+      angles_score = ifelse(season %in% c(2025,2026),(
+        hhla_norm * HHLA_WEIGHT +
+        avg_la_norm * AVG_LA_WEIGHT +
+        ideal_aa_norm * IDEAL_AA_WEIGHT +
+        sweet_spot_norm * SWSPOT_WEIGHT
+      ),(
+        hhla_norm * HHLA_WEIGHT_old +
+        avg_la_norm * AVG_LA_WEIGHT_old +
+        sweet_spot_norm * SWSPOT_WEIGHT_old
+      )),
+      
+      # Classify angles performance based on composite score
       angles_tier = case_when(
-        sweet_spot_pct_rank >= EXCELLENT_ANGLES_THRESHOLD ~ "Excellent",
-        sweet_spot_pct_rank >= GOOD_ANGLES_THRESHOLD ~ "Good",
-        sweet_spot_pct_rank >= AVERAGE_ANGLES_LOWER ~ "Average",
+        angles_score >= EXCELLENT_ANGLES_THRESHOLD / 100 ~ "Excellent",
+        angles_score >= GOOD_ANGLES_THRESHOLD / 100 ~ "Good",
         TRUE ~ "Below Average"
       ),
       
-      # Interaction cohort (primary focus)
+      # INTERACTION COHORTS (2 groups for focused analysis)
       interaction_cohort = case_when(
-        loft_cohort == "Poor Loft" & angles_tier == "Excellent" ~ "Compensators",
-        (loft_cohort == "Neutral Loft" | loft_cohort == "Good Loft") & angles_tier == "Excellent" ~ "Structural",
-        loft_cohort == "Poor Loft" & angles_tier %in% c("Average", "Below Average") ~ "Rebuilders",
-        (loft_cohort == "Neutral Loft" | loft_cohort == "Good Loft") & angles_tier %in% c("Average", "Below Average") ~ "Underperformers",
-        TRUE ~ "Other"
+        poor_loft & angles_tier %in% c("Good", "Excellent") ~ "Poor Loft + Good Angles",
+        !poor_loft & angles_tier %in% c("Good", "Excellent") ~ "Non-Poor Loft + Good Angles",
+        TRUE ~ "Excluded from Analysis"
+      ),
+
+      swspt_cohort = case_when(
+        poor_loft & sweet_spot_pct_rank >= 65 ~ "Poor Loft + Good Angles",
+        !poor_loft & sweet_spot_pct_rank >= 65 ~ "Non-Poor Loft + Good Angles",
+        TRUE ~ "Excluded from Analysis"
       )
     )
     #  %>%
@@ -144,9 +169,15 @@ AVERAGE_ANGLES_LOWER <- 40
   cat("\nInteraction Cohort Distribution:\n")
   interaction_dist <- loft_classified %>%
     group_by(interaction_cohort) %>%
-    summarise(count = n(), .groups = "drop") %>%
+    summarise(count = n(), pct = 100 * n() / nrow(loft_classified), .groups = "drop") %>%
     arrange(desc(count))
   print(interaction_dist)
+  
+  cat("\nNote: Focused analysis on players with GOOD/EXCELLENT angles only.\n")
+  good_angles <- loft_classified %>%
+    filter(angles_tier %in% c("Good", "Excellent"))
+  cat("Players with Good/Excellent angles:", nrow(good_angles), 
+      "(" %+% round(100 * nrow(good_angles) / nrow(loft_classified), 1) %+% "%)\n")
   
   cat("\nCross-Tabulation (Loft x Angles):\n")
   cross_tab <- loft_classified %>%
@@ -183,3 +214,7 @@ AVERAGE_ANGLES_LOWER <- 40
 # =============================================================================
 
 loft_data <- classify_loft_profiles()
+
+
+loft <- loft_classified %>%
+  filter(loft_cohort == "Poor Loft")

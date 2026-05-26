@@ -16,7 +16,7 @@ build_regression_models_mlb <- function() {
     return(NULL)
   }
   
-  transitions <- read_csv(trans_file, show_col_types = FALSE)
+  transitions <- read.csv("report-agent/data/processed/stability_transitions_MLB.csv")
   
   if (nrow(transitions) == 0) {
     cat("No transitions available for modeling.\n")

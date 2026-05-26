@@ -1,4 +1,4 @@
-# Step 3: Calculate Multi-Year Stability Metrics (MLB)
+# Step 3: Calculate Multi-Yea Stability Metrics (MLB)
 # Input: data/processed/loft_profile_classification_MLB.csv
 # Output: data/processed/stability_transitions_MLB.csv
 
@@ -6,80 +6,80 @@ library(dplyr)
 library(tidyr)
 library(readr)
 
-DATA_DIR <- "data/processed"
+DATA_DIR <- "report-agent/data/processed"
 
 # calculate_stability_metrics_mlb <- function(input_file = NULL) {
   cat("Calculating MLB stability metrics...\n")
   
   if (is.null(input_file)) {
-    input_file <- file.path(DATA_DIR, "loft_profile_classification_MLB.csv")
+    input_file <- file.path(DATA_DIR, "loft_profile_classification.csv")
   }
   
   if (!file.exists(input_file)) {
     stop("Input file not found: ", input_file)
   }
   
-  angles_data <- read_csv(input_file, show_col_types = FALSE)
+  angles_data <- read.csv("report-agent/data/processed/loft_profile_classification.csv")
   cat("Loaded", nrow(angles_data), "MLB player-season records.\n")
   
   # Sort by player and season for transitions
   player_seasons <- angles_data %>%
-    select(season, batter, batter_name, 
-           loft_deficiency_score, loft_cohort, interaction_cohort,
-           sweet_spot_pct, sweet_spot_pct_rank,
-           launch_angle_avg, launch_angle_std,
-           la_8_16_pct, la_17_32_pct,
-           hard_hit_pct, oppo_fb_pct, oppo_fb_ev,
-           barrel_pct, avg_exit_velocity) %>%
-    arrange(batter_name, season)
+    mutate(`High.AA.` = ifelse(!season %in% c(2025,2026),NA,`High.AA.`))
   
   # Create transitions
   transitions_list <- list()
   
-  for (player_id in unique(player_seasons$batter)) {
+  for (player_id in unique(player_seasons$last_first_name)) {
     player_data <- player_seasons %>%
-      filter(batter == player_id) %>%
+      filter(last_first_name == player_id) %>%
       arrange(season)
     
     if (nrow(player_data) > 1) {
       for (i in 1:(nrow(player_data) - 1)) {
-        prior <- player_data %>% slice(i)
-        current <- player_data %>% slice(i + 1)
+        prior <- player_data %>% dplyr::slice(i)
+        current <- player_data %>% dplyr::slice(i + 1)
         
         transition <- tibble(
           batter = player_id,
-          batter_name = prior$batter_name,
+          batter_name = prior$last_first_name,
           prior_year = prior$season,
           current_year = current$season,
-          prior_loft_deficiency_score = prior$loft_deficiency_score,
+          prior_poor_loft = prior$poor_loft,
           prior_loft_cohort = prior$loft_cohort,
+          prior_angles_score = prior$angles_score,
+          prior_angles_tier = prior$angles_tier,
           prior_interaction_cohort = prior$interaction_cohort,
-          prior_ss_pct = prior$sweet_spot_pct,
+          prior_swspt_cohort = prior$swspt_cohort,
+          prior_ss_pct = prior$`Sweet.Spot.`,
+          prior_ss_pct_rank = prior$sweet_spot_pct_rank,
           
           # YoY changes
-          ss_pct_yoy_change = current$sweet_spot_pct - prior$sweet_spot_pct,
+          ss_pct_yoy_change = current$`Sweet.Spot.` - prior$`Sweet.Spot.`,
           ss_pct_yoy_change_rank = current$sweet_spot_pct_rank - prior$sweet_spot_pct_rank,
-          la_avg_yoy_change = current$launch_angle_avg - prior$launch_angle_avg,
-          hh_pct_yoy_change = current$hard_hit_pct - prior$hard_hit_pct,
-          oppo_fb_ev_yoy_change = current$oppo_fb_ev - prior$oppo_fb_ev,
-          oppo_fb_pct_yoy_change = current$oppo_fb_pct - prior$oppo_fb_pct,
-          barrel_pct_yoy_change = current$barrel_pct - prior$barrel_pct,
+          la_avg_yoy_change = current$`Avg.LA` - prior$`Avg.LA`,
+          oppo_fb_ev_yoy_change = current$`Oppo.FB.EV` - prior$`Oppo.FB.EV`,
+          oppo_fb_pct_yoy_change = current$`Oppo.FB.` - prior$`Oppo.FB.`,
+          hhla_yoy_change = current$`HH.LA` - prior$`HH.LA`,
+          ideal_aa_yoy_change = current$`High.AA.` - prior$`High.AA.`,
           
-          current_ss_pct = current$sweet_spot_pct,
+          current_ss_pct = current$`Sweet.Spot.`,
           current_ss_pct_rank = current$sweet_spot_pct_rank,
+          current_angles_score = current$angles_score,
           current_interaction_cohort = current$interaction_cohort,
+          current_swspt_cohort = current$swspt_cohort,
+          current_loft_cohort = current$loft_cohort,
           
-          # LA band shifts
-          la_8_16_pct_change = current$la_8_16_pct - prior$la_8_16_pct,
-          la_17_32_pct_change = current$la_17_32_pct - prior$la_17_32_pct,
+          # Indicators - Sweet Spot regression
+          regressed_ss_5pp = if_else(ss_pct_yoy_change < -2.5, 1, 0),
+          regressed_ss_10pp = if_else(ss_pct_yoy_change < -5, 1, 0),
+          improved_ss_5pp = if_else(ss_pct_yoy_change > 2.5, 1, 0),
+          stayed_good_ss = if_else(current$sweet_spot_pct_rank >= 65,1,0),
           
-          # Indicators
-          regressed_ss_5pp = if_else(ss_pct_yoy_change < -5, 1, 0),
-          regressed_ss_10pp = if_else(ss_pct_yoy_change < -10, 1, 0),
-          improved_ss_5pp = if_else(ss_pct_yoy_change > 5, 1, 0),
-          
-          improved_loft_deficiency = if_else(current$loft_deficiency_score < prior$loft_deficiency_score, 1, 0),
-          loft_deficiency_yoy_change = current$loft_deficiency_score - prior$loft_deficiency_score
+          # Indicators - Angles Score regression
+          angles_score_yoy_change = current_angles_score - prior_angles_score,
+          regressed_angles_score = if_else(angles_score_yoy_change < -0.05, 1, 0),
+          improved_angles_score = if_else(angles_score_yoy_change > 0.05, 1, 0),
+          stayed_good_angles = if_else(current_angles_score >= 0.5025,1,0)
         )
         
         transitions_list[[length(transitions_list) + 1]] <- transition
@@ -91,15 +91,45 @@ DATA_DIR <- "data/processed"
     transitions_df <- bind_rows(transitions_list)
     cat("\nIdentified", nrow(transitions_df), "MLB year-over-year transitions.\n")
     
-    write_csv(transitions_df, file.path(DATA_DIR, "stability_transitions_MLB.csv"))
+    write_csv(transitions_df, "report-agent/data/processed/stability_transitions_MLB.csv")
     
-    cat("\n=== MLB STABILITY SUMMARY BY PRIOR COHORT ===\n")
-    by_cohort <- transitions_df %>%
+    # Filter to focused cohorts only (good/excellent angles)
+    focused_trans <- transitions_df %>%
+      filter(prior_interaction_cohort != "Excluded from Analysis")
+    
+    cat("\n=== MLB STABILITY SUMMARY (FOCUSED COHORTS) ===\n")
+    cat("\nAnalyzing", nrow(focused_trans), "transitions for players with Good/Excellent angles.\n\n")
+    
+    by_cohort <- focused_trans %>%
       group_by(prior_interaction_cohort) %>%
       summarise(
         n = n(),
+        mean_angles_score = mean(prior_angles_score, na.rm = TRUE),
+        mean_ss_pct = mean(prior_ss_pct, na.rm = TRUE),
         mean_ss_change = mean(ss_pct_yoy_change, na.rm = TRUE),
-        pct_regressed_5pp = 100 * mean(regressed_ss_5pp, na.rm = TRUE),
+        pct_regressed_ss_5pp = 100 * mean(regressed_ss_5pp, na.rm = TRUE),
+        mean_angles_score_change = mean(angles_score_yoy_change, na.rm = TRUE),
+        pct_regressed_angles = 100 * mean(regressed_angles_score, na.rm = TRUE),
+        pct_improved_angles = 100 * mean(improved_angles_score, na.rm = TRUE),
+        num_good_ss = sum(stayed_good_ss, na.rm = TRUE),
+        num_good_angles = sum(stayed_good_angles, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(n))
+
+      by_ss <- transitions_df %>%
+      group_by(prior_swspt_cohort) %>%
+      summarise(
+        n = n(),
+        mean_angles_score = mean(prior_angles_score, na.rm = TRUE),
+        mean_ss_pct = mean(prior_ss_pct, na.rm = TRUE),
+        mean_ss_change = mean(ss_pct_yoy_change, na.rm = TRUE),
+        pct_regressed_ss_5pp = 100 * mean(regressed_ss_5pp, na.rm = TRUE),
+        mean_angles_score_change = mean(angles_score_yoy_change, na.rm = TRUE),
+        pct_regressed_angles = 100 * mean(regressed_angles_score, na.rm = TRUE),
+        pct_improved_angles = 100 * mean(improved_angles_score, na.rm = TRUE),
+        num_good_ss = sum(stayed_good_ss, na.rm = TRUE),
+        num_good_angles = sum(stayed_good_angles, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       arrange(desc(n))
@@ -114,4 +144,183 @@ DATA_DIR <- "data/processed"
   return(transitions_df)
 }
 
-stability_mlb <- calculate_stability_metrics_mlb()
+stability_mlb <- transitions_df
+
+
+try <- angles_data %>%
+  # filter(interaction_cohort == "Poor Loft + Good Angles", season != 2026) %>%
+  filter(season != 2026,angles_score <= 0.60) %>%
+  select(last_first_name,season,hard_hit_pct_rank,launch_angle_avg_rank,high_aa_pct_rank,sweet_spot_pct_rank,angles_score)
+
+
+# 1. Find all players with at least one poor loft season
+poor_loft_players <- angles_data %>%
+  filter(loft_cohort == "Poor Loft") %>%
+  distinct(last_first_name)
+
+# 2. For each of those players, calculate their poor-loft rate across ALL seasons
+poor_loft_persistence <- angles_data %>%
+  filter(last_first_name %in% poor_loft_players$last_first_name) %>%
+  group_by(last_first_name) %>%
+  summarise(
+    n_seasons = n(),
+    n_poor_loft_seasons = sum(loft_cohort == "Poor Loft", na.rm = TRUE),
+    pct_poor_loft_seasons = 100 * n_poor_loft_seasons / n_seasons,
+    seasons_list = paste(season, collapse = ", "),
+    poor_loft_seasons = paste(season[poor_loft == TRUE], collapse = ", ")
+  ) %>%
+  arrange(desc(pct_poor_loft_seasons))
+
+# 3. Segment them
+segments <- poor_loft_persistence %>%
+  mutate(
+    persistence_type = case_when(
+      pct_poor_loft_seasons == 100 ~ "Chronic (every year)",
+      pct_poor_loft_seasons >= 66 ~ "Frequent (2+ of 3 years)",
+      pct_poor_loft_seasons >= 33 ~ "Occasional (1-2 seasons)",
+      TRUE ~ "One-timer"
+    )
+  )
+
+# Summary
+summary_by_type <- segments %>%
+  group_by(persistence_type) %>%
+  summarise(
+    n_hitters = n(),
+    pct_of_poor_loft_hitters = 100 * n() / nrow(segments),
+    mean_seasons = mean(n_seasons),
+    mean_pct_poor_loft = mean(pct_poor_loft_seasons),
+    examples = paste(head(batter_name, 3), collapse = ", ")
+  )
+
+  chronic_loft <- poor_loft_persistence %>%
+  filter(n_seasons > 2 | (n_seasons == 2 & pct_poor_loft_seasons == 100)) %>%
+  mutate(state_cohort = ifelse(pct_poor_loft_seasons >= 65,"chronic","transient"))
+
+full_persist <- left_join(angles_data,chronic_loft,by=c("last_first_name"))
+
+
+# 3. For each player, calculate angles_score consistency
+angles_consistency <- angles_data %>%
+  group_by(last_first_name) %>%
+  summarise(
+    mean_angles_score = mean(angles_score, na.rm = TRUE),
+    sd_angles_score = sd(angles_score, na.rm = TRUE),
+    cv_angles_score = sd_angles_score / mean_angles_score,  # Coefficient of variation
+    mean_ss_rank = mean(sweet_spot_pct_rank, na.rm = TRUE),
+    sd_ss_rank = sd(sweet_spot_pct_rank, na.rm = TRUE),
+    cv_ss_rank = sd_ss_rank / mean_ss_rank,
+    mean_avg_la_rank = mean(launch_angle_avg_rank, na.rm = TRUE),
+    sd_avg_la_rank = sd(launch_angle_avg_rank, na.rm = TRUE),
+    cv_avg_la_rank = sd_avg_la_rank / mean_avg_la_rank,
+    mean_hhla_rank = mean(hard_hit_pct_rank, na.rm = TRUE),
+    sd_hhla_rank = sd(hard_hit_pct_rank, na.rm = TRUE),
+    cv_hhla_rank = sd_hhla_rank / mean_hhla_rank
+  ) %>%
+  left_join(chronic_loft, by = "last_first_name")
+
+# 4. Compare chronic vs transient
+consistency_by_type <- angles_consistency %>%
+  filter(state_cohort %in% c("chronic", "transient")) %>%
+  group_by(state_cohort) %>%
+  summarise(
+    n_players = n(),
+    mean_mean_angles = round(mean(mean_angles_score, na.rm = TRUE), 2),
+    mean_sd_angles = round(mean(sd_angles_score, na.rm = TRUE), 2),
+    mean_cv_angles = round(mean(cv_angles_score, na.rm = TRUE), 2),
+    median_sd_angles = round(median(sd_angles_score, na.rm = TRUE), 2),
+    median_cv_angles = round(median(cv_angles_score, na.rm = TRUE), 2), 
+    mean_mean_ss_rank = round(mean(mean_ss_rank, na.rm = TRUE), 2),
+    mean_sd_ss_rank = round(mean(sd_ss_rank, na.rm = TRUE), 2),
+    mean_cv_ss_rank = round(mean(cv_ss_rank, na.rm = TRUE), 2),
+    mean_mean_avg_la_rank = round(mean(mean_avg_la_rank, na.rm = TRUE), 2),
+    mean_sd_avg_la_rank = round(mean(sd_avg_la_rank, na.rm = TRUE), 2),
+    mean_cv_avg_la_rank = round(mean(cv_avg_la_rank, na.rm = TRUE), 2),
+    mean_mean_hhla_rank = round(mean(mean_hhla_rank, na.rm = TRUE), 2),
+    mean_sd_hhla_rank = round(mean(sd_hhla_rank, na.rm = TRUE), 2),
+    mean_cv_hhla_rank = round(mean(cv_hhla_rank, na.rm = TRUE), 2)
+  ) %>%
+  select(state_cohort,n_players,mean_mean_angles,mean_sd_angles,mean_mean_ss_rank,
+          mean_sd_ss_rank,mean_mean_avg_la_rank,mean_sd_avg_la_rank,
+          mean_mean_hhla_rank,mean_sd_hhla_rank) %>%
+  rename(
+    `Cohort` = state_cohort,
+    `# Players` = n_players,
+    `Angles Score` = mean_mean_angles,
+    `SD Angles Score` = mean_sd_angles,
+    `Sweet Spot Rank` = mean_mean_ss_rank,
+    `SD Sweet Spot Rank` = mean_sd_ss_rank,
+    `Avg LA Rank` = mean_mean_avg_la_rank,
+    `SD Avg LA Rank` = mean_sd_avg_la_rank,
+    `HH LA Rank` = mean_mean_hhla_rank,
+    `SD HH LA Rank` = mean_sd_hhla_rank
+  )
+
+  stats_table <- ggplot(consistency_by_type, aes(x = 1, y = 1)) +
+  annotation_custom(
+    grob = gridExtra::tableGrob(
+      consistency_by_type,
+      rows = NULL,
+      theme = gridExtra::ttheme_default(
+        core = list(
+          fg_params = list(cex = 0.9),
+          bg_params = list(fill = c("white", "#F0F0F0"), alpha = 0.3)
+        ),
+        colhead = list(
+          fg_params = list(cex = 1, fontface = 2),
+          bg_params = list(fill = "#4A90E2", alpha = 1)
+        )
+      )
+    )
+  ) +
+  theme_void() + 
+    theme(strip.text = element_text(size = 10, face = "bold"),
+          plot.background = element_rect(fill = "white", color = NA),
+          panel.background = element_rect(fill = "white", color = NA))
+
+
+try <- angles_consistency %>%
+  filter(state_cohort %in% c("chronic", "transient")) 
+
+library(ggplot2)
+library(gridExtra)
+
+baseline_players <- angles_data %>%
+  filter((last_first_name == "Larnach, Trevor" & season == 2024) | (last_first_name == "Santana, Carlos" & season == 2025) | (last_first_name == "Soler, Jorge" & season == 2021)) %>%
+  select(last_first_name, season, hard_hit_pct_rank, launch_angle_avg_rank, high_aa_pct_rank, sweet_spot_pct_rank) %>%
+  mutate(across(c(hard_hit_pct_rank, launch_angle_avg_rank, high_aa_pct_rank, sweet_spot_pct_rank), 
+                ~round(., 1))) %>%
+  rename(`Player Name` = last_first_name, `Season` = season,
+         `HH LA` = hard_hit_pct_rank, `Avg LA` = launch_angle_avg_rank,
+         `High AA%` = high_aa_pct_rank, `Sweet Spot%` = sweet_spot_pct_rank)
+
+# Create ggplot table
+baseline_table <- ggplot(baseline_players, aes(x = 1, y = 1)) +
+  annotation_custom(
+    grob = gridExtra::tableGrob(
+      baseline_players,
+      rows = NULL,
+      theme = gridExtra::ttheme_default(
+        core = list(
+          fg_params = list(cex = 0.9),
+          bg_params = list(fill = c("white", "#F0F0F0"), alpha = 0.3)
+        ),
+        colhead = list(
+          fg_params = list(cex = 1, fontface = 2),
+          bg_params = list(fill = "#4A90E2", alpha = 1)
+        )
+      )
+    )
+  ) +
+  theme_void() + 
+    theme(strip.text = element_text(size = 10, face = "bold"),
+          plot.background = element_rect(fill = "white", color = NA),
+          panel.background = element_rect(fill = "white", color = NA))
+
+# Print table
+print(baseline_table)
+
+setwd()
+
+ggsave("/Users/andrewsumner/baseline_anglesscore.png", baseline_table, width = 14, height = 10, dpi = 300)
+ggsave("/Users/andrewsumner/chronicvtransient.png", stats_table, width = 14, height = 10, dpi = 300)
