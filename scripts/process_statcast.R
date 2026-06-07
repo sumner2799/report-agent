@@ -684,22 +684,92 @@ compare_pitcher_trend <- function(pitcher_id, pitcher_name, pitcher_level, prev_
     hh_pct = curr_metrics$hh_pct - prev_metrics$hh_pct
   )
   
-  # Placeholder thresholds - to be calibrated
+  # Calculate pitcher arsenal metrics for both periods
+  # Get unique pitch types and calculate metrics per pitch
+  tryCatch({
+    pitch_types <- unique(curr_data$pitch_type)
+    pitch_types <- pitch_types[!is.na(pitch_types)]
+    
+    arsenal_deltas <- list()
+    
+    for (pitch in pitch_types) {
+      prev_pitch_metrics <- calculate_pitch_metrics(prev_data, pitch)
+      curr_pitch_metrics <- calculate_pitch_metrics(curr_data, pitch)
+      
+      # Store deltas with pitch identifier
+      arsenal_deltas[[paste0(pitch, "_velo")]] <- list(
+        pitch = pitch,
+        metric = "velo",
+        delta = curr_pitch_metrics$avg_velocity - prev_pitch_metrics$avg_velocity,
+        prev_val = prev_pitch_metrics$avg_velocity,
+        curr_val = curr_pitch_metrics$avg_velocity
+      )
+      arsenal_deltas[[paste0(pitch, "_hb")]] <- list(
+        pitch = pitch,
+        metric = "hb",
+        delta = curr_pitch_metrics$hb - prev_pitch_metrics$hb,
+        prev_val = prev_pitch_metrics$hb,
+        curr_val = curr_pitch_metrics$hb
+      )
+      arsenal_deltas[[paste0(pitch, "_vb")]] <- list(
+        pitch = pitch,
+        metric = "vb",
+        delta = curr_pitch_metrics$vb - prev_pitch_metrics$vb,
+        prev_val = prev_pitch_metrics$vb,
+        curr_val = curr_pitch_metrics$vb
+      )
+      arsenal_deltas[[paste0(pitch, "_rel_side")]] <- list(
+        pitch = pitch,
+        metric = "rel_side",
+        delta = curr_pitch_metrics$rel_side - prev_pitch_metrics$rel_side,
+        prev_val = prev_pitch_metrics$rel_side,
+        curr_val = curr_pitch_metrics$rel_side
+      )
+      arsenal_deltas[[paste0(pitch, "_rel_height")]] <- list(
+        pitch = pitch,
+        metric = "rel_height",
+        delta = curr_pitch_metrics$rel_height - prev_pitch_metrics$rel_height,
+        prev_val = prev_pitch_metrics$rel_height,
+        curr_val = curr_pitch_metrics$rel_height
+      )
+    }
+    
+    # Add arsenal deltas to the main list
+    metric_deltas$arsenal <- arsenal_deltas
+  }, error = function(e) {
+    # If arsenal calculation fails, just continue without it
+    NULL
+  })
+  
+  # Calibrated thresholds for pitcher trend detection
   thresholds <- list(
-    swing_pct = 5.0,      # ±5% significant
-    strike_pct = 5.0,
-    zone_pct = 5.0,
-    chase_pct = 2.5,
-    whiff_pct = 5.0,      # ±5% significant
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
-    hh_pct = 2.5
+    swing_pct = 0.92,
+    strike_pct = 0.80,
+    zone_pct = 0.94,
+    chase_pct = 1.17,
+    whiff_pct = 1.39,
+    iz_whiff = 1.43,
+    oz_whiff = 2.22,
+    gb_pct = 2.23,
+    hh_pct = 1.62,
+    # Arsenal thresholds
+    velo = 2.0,
+    hb = 3.0,
+    vb = 3.0,
+    rel_side = 0.2,
+    rel_height = 0.2
   )
   
   # Check if any metric has significant change
   significant_changes <- map_lgl(names(metric_deltas), ~{
-    abs(metric_deltas[[.x]]) >= thresholds[[.x]]
+    if (.x == "arsenal") {
+      # Check if any pitch meets arsenal thresholds
+      return(any(map_lgl(metric_deltas$arsenal, ~{
+        abs(.x$delta) >= thresholds[[.x$metric]]
+      })))
+    } else {
+      return(abs(metric_deltas[[.x]]) >= thresholds[[.x]])
+    }
   })
   
   if (any(significant_changes)) {
@@ -787,24 +857,62 @@ compare_batter_trend <- function(batter_id, batter_level, prev_period_end, curr_
     swspt_pct = curr_metrics$swspt_pct - prev_metrics$swspt_pct
   )
   
-  # Placeholder thresholds - to be calibrated
+  # Calculate batter profile metrics for both periods
+  # Filter to balls in play only for profile calculations
+  tryCatch({
+    prev_bip_data <- prev_data
+    curr_bip_data <- curr_data
+    
+    if (nrow(prev_bip_data) >= 10 && nrow(curr_bip_data) >= 10) {
+      if (batter_level == "MLB") {
+        prev_profile <- calculate_batter_profile(prev_bip_data)
+        curr_profile <- calculate_batter_profile(curr_bip_data)
+      } else {
+        prev_profile <- calculate_batter_profile_milb(prev_bip_data)
+        curr_profile <- calculate_batter_profile_milb(curr_bip_data)
+      }
+      
+      # Add profile deltas to metric_deltas
+      metric_deltas$avg_la = curr_profile$avg_la - prev_profile$avg_la
+      metric_deltas$la_std_dev = curr_profile$la_std_dev - prev_profile$la_std_dev
+      metric_deltas$hh_la = curr_profile$hh_la - prev_profile$hh_la
+      metric_deltas$oppo_fb_pct = curr_profile$oppo_fb_pct - prev_profile$oppo_fb_pct
+      metric_deltas$oppo_fb_ev = curr_profile$oppo_fb_ev - prev_profile$oppo_fb_ev
+      metric_deltas$high_aa_pct = curr_profile$high_aa_pct - prev_profile$high_aa_pct
+    }
+  }, error = function(e) {
+    # If profile calculation fails, just continue without it
+    NULL
+  })
+  
+  # Calibrated thresholds for batter trend detection
   thresholds <- list(
-    swing_pct = 5.0,      # ±5% significant
-    chase_pct = 5.0,
-    foul_pct = 5.0,
-    whiff_pct = 5.0,      # ±5% significant
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
-    barrel_pct = 2.0,     # ±2.0% significant
-    hh_pct = 2.5,
-    slg = 0.050,          # ±.050 slugging points significant
-    swspt_pct = 2.5
+    swing_pct = 1.93,
+    chase_pct = 2.31,
+    foul_pct = 2.17,
+    whiff_pct = 2.16,
+    iz_whiff = 2.24,
+    oz_whiff = 3.66,
+    gb_pct = 3.95,
+    barrel_pct = 2.0,
+    hh_pct = 3.48,
+    slg = 0.075,
+    swspt_pct = 3.64,
+    # Profile thresholds
+    avg_la = 2.20,
+    la_std_dev = 1.53,
+    hh_la = 2.18,
+    oppo_fb_pct = 6.80,
+    oppo_fb_ev = 2.45,
+    high_aa_pct = 8.50
   )
   
   # Check if any metric has significant change
   significant_changes <- map_lgl(names(metric_deltas), ~{
-    abs(metric_deltas[[.x]]) >= thresholds[[.x]]
+    if (.x %in% names(thresholds)) {
+      return(abs(metric_deltas[[.x]]) >= thresholds[[.x]])
+    }
+    return(FALSE)
   })
   
   if (any(significant_changes)) {
@@ -1324,7 +1432,7 @@ generate_trend_reports_mnl <- function(players, all_data) {
 }
 
 generate_pitcher_trend_report <- function(pitcher_id, pitcher_name, pitcher_level, metric_changes, all_data) {
-  # Generates pitcher trend report showing month-over-month changes
+  # Generates pitcher trend report showing month-over-month changes with percentile ranks and arsenal metrics
   # pitcher_level: league level ("MLB", "AAA", "AA", etc.)
   
   # Get the latest game_date in the data to determine analysis month/year
@@ -1360,27 +1468,89 @@ generate_pitcher_trend_report <- function(pitcher_id, pitcher_name, pitcher_leve
     curr_metrics <- calculate_pitcher_overall_perf_milb(curr_data)
   }
   
-  # Thresholds for significance
+  # Calculate percentile ranks for both periods
+  tryCatch({
+    prev_percentiles <- calculate_pitcher_overall_percentiles(prev_metrics, pitcher_id, pitcher_level)
+    curr_percentiles <- calculate_pitcher_overall_percentiles(curr_metrics, pitcher_id, pitcher_level)
+  }, error = function(e) {
+    # Skip report if percentile calculation fails
+    return(NULL)
+  })
+  
+  # If percentile calculation failed, return NULL to skip report
+  if (is.null(prev_percentiles) || is.null(curr_percentiles)) {
+    return(NULL)
+  }
+  
+  # Calibrated thresholds for percentile differences
   thresholds <- list(
-    swing_pct = 5.0,
-    strike_pct = 5.0,
-    zone_pct = 5.0,
-    chase_pct = 2.5,
-    whiff_pct = 5.0,
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
-    hh_pct = 5.0
+    swing_pct = 0.92,
+    strike_pct = 0.80,
+    zone_pct = 0.94,
+    chase_pct = 1.17,
+    whiff_pct = 1.39,
+    iz_whiff = 1.43,
+    oz_whiff = 2.22,
+    gb_pct = 2.23,
+    hh_pct = 1.62
   )
   
-  # Identify significant changes
+  # Map metric names to percentile rank field names
+  metric_to_percentile <- list(
+    swing_pct = "swing_rank",
+    strike_pct = "strike_rank",
+    zone_pct = "zone_rank",
+    chase_pct = "chase_rank",
+    whiff_pct = "whiff_rank",
+    iz_whiff = "iz_whiff_rank",
+    oz_whiff = "oz_whiff_rank",
+    gb_pct = "gb_rank",
+    hh_pct = "hh_rank"
+  )
+  
+  # Identify significant percentile changes (performance KPIs)
   significant_changes <- list()
   for (metric in names(metric_changes)) {
-    if (metric == "pitches" || metric == "bip") next
-    if (abs(metric_changes[[metric]]) >= thresholds[[metric]]) {
-      direction <- if (metric_changes[[metric]] > 0) "↑" else "↓"
+    if (metric == "arsenal") next  # Handle arsenal separately below
+    if (!(metric %in% names(metric_to_percentile))) next
+    
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    if (abs(pctl_delta) >= thresholds[[metric]]) {
+      direction <- if (pctl_delta > 0) "↑" else "↓"
       significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                              sprintf("%+.1f", metric_changes[[metric]]), "%")
+                                              sprintf("%+.1f", pctl_delta), " percentile points")
+    }
+  }
+  
+  # Add significant arsenal changes with pitch identification
+  if (!is.null(metric_changes$arsenal)) {
+    arsenal_thresholds <- list(velo = 2.0, hb = 3.0, vb = 3.0, rel_side = 0.2, rel_height = 0.2)
+    
+    for (arsenal_key in names(metric_changes$arsenal)) {
+      arsenal_metric <- metric_changes$arsenal[[arsenal_key]]
+      if (!is.na(arsenal_metric$delta) && abs(arsenal_metric$delta) >= arsenal_thresholds[[arsenal_metric$metric]]) {
+        direction <- if (arsenal_metric$delta > 0) "↑" else "↓"
+        
+        # Format the display based on metric type
+        if (arsenal_metric$metric == "velo") {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - Velo: ", 
+                           sprintf("%+.1f", arsenal_metric$delta), " mph")
+        } else if (arsenal_metric$metric %in% c("hb", "vb")) {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - ", 
+                           toupper(gsub("_", "-", arsenal_metric$metric)), ": ", 
+                           sprintf("%+.1f", arsenal_metric$delta), " in")
+        } else {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - ", 
+                           arsenal_metric$metric, ": ", 
+                           sprintf("%+.2f", arsenal_metric$delta))
+        }
+        
+        significant_changes[[arsenal_key]] <- display
+      }
     }
   }
   
@@ -1391,27 +1561,71 @@ generate_pitcher_trend_report <- function(pitcher_id, pitcher_name, pitcher_leve
     "No significant metric changes detected"
   }
   
-  # Build full metrics comparison table
-  metrics_table <- "| Metric | Previous | Current | Change |\n|---|---|---|---|\n"
+  # Build full metrics comparison table with percentile ranks
+  metrics_table <- "| Metric | Previous Percentile | Current Percentile | Change |\n|---|---|---|---|\n"
   
-  metric_names <- names(metric_changes)
-  for (metric in metric_names) {
-    if (metric == "pitches" || metric == "bip") next
+  for (metric in names(metric_to_percentile)) {
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
     
-    prev_val <- prev_metrics[[metric]]
-    curr_val <- curr_metrics[[metric]]
-    delta <- metric_changes[[metric]]
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
+    }
     
-    if (is.na(prev_val) || is.na(curr_val)) next
+    metrics_table <- paste0(metrics_table,
+                           "| ", metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
+  }
+  
+  # Add arsenal metrics table if present
+  if (!is.null(metric_changes$arsenal)) {
+    arsenal_thresholds <- list(velo = 2.0, hb = 3.0, vb = 3.0, rel_side = 0.2, rel_height = 0.2)
+    arsenal_metrics_shown <- FALSE
+    arsenal_table <- "| Pitch | Metric | Previous | Current | Change |\n|---|---|---|---|---|\n"
     
-    if (grepl("pct", metric)) {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, "% | ", curr_val, "% | ",
-                             sprintf("%+.1f", delta), "% |\n")
-    } else {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.1f", delta), " |\n")
+    for (arsenal_key in names(metric_changes$arsenal)) {
+      arsenal_metric <- metric_changes$arsenal[[arsenal_key]]
+      if (!is.na(arsenal_metric$prev_val) && !is.na(arsenal_metric$curr_val)) {
+        arsenal_metrics_shown <- TRUE
+        
+        if (arsenal_metric$metric == "velo") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Velo (mph) | ",
+                                sprintf("%.1f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.1f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.1f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric %in% c("hb", "vb")) {
+          metric_name <- if (arsenal_metric$metric == "hb") "H-Break (in)" else "V-Break (in)"
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | ", metric_name, " | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric == "rel_side") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Release Side | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric == "rel_height") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Release Height | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        }
+      }
+    }
+    
+    if (arsenal_metrics_shown) {
+      metrics_table <- paste0(metrics_table, "\n## Arsenal Metrics\n", arsenal_table)
     }
   }
   
@@ -1423,7 +1637,7 @@ generate_pitcher_trend_report <- function(pitcher_id, pitcher_name, pitcher_leve
       "**Analysis Period:** Year-to-date through previous month vs year-to-date through current month\n\n",
       "## Significant Changes\n",
       changes_list, "\n\n",
-      "## Detailed Metrics Breakdown\n",
+      "## Detailed Metrics Breakdown (Percentile Ranks)\n",
       metrics_table, "\n",
       "## Analysis\n",
       "[Trend analysis pending]\n"
@@ -1436,7 +1650,7 @@ generate_pitcher_trend_report <- function(pitcher_id, pitcher_name, pitcher_leve
 }
 
 generate_pitcher_trend_report_mnl <- function(pitcher_id, pitcher_name, pitcher_level, metric_changes, all_data) {
-  # Generates pitcher trend report showing month-over-month changes
+  # Generates pitcher trend report showing month-over-month changes with percentile ranks
   # pitcher_level: league level ("MLB", "AAA", "AA", etc.)
   
   # Get the latest game_date in the data to determine analysis month/year
@@ -1472,27 +1686,89 @@ generate_pitcher_trend_report_mnl <- function(pitcher_id, pitcher_name, pitcher_
     curr_metrics <- calculate_pitcher_overall_perf_milb(curr_data)
   }
   
-  # Thresholds for significance
+  # Calculate percentile ranks for both periods
+  tryCatch({
+    prev_percentiles <- calculate_pitcher_overall_percentiles(prev_metrics, pitcher_id, pitcher_level)
+    curr_percentiles <- calculate_pitcher_overall_percentiles(curr_metrics, pitcher_id, pitcher_level)
+  }, error = function(e) {
+    # Skip report if percentile calculation fails
+    return(NULL)
+  })
+  
+  # If percentile calculation failed, return NULL to skip report
+  if (is.null(prev_percentiles) || is.null(curr_percentiles)) {
+    return(NULL)
+  }
+  
+  # Calibrated thresholds for percentile differences
   thresholds <- list(
-    swing_pct = 5.0,
-    strike_pct = 5.0,
-    zone_pct = 5.0,
-    chase_pct = 2.5,
-    whiff_pct = 5.0,
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
-    hh_pct = 2.5
+    swing_pct = 0.92,
+    strike_pct = 0.80,
+    zone_pct = 0.94,
+    chase_pct = 1.17,
+    whiff_pct = 1.39,
+    iz_whiff = 1.43,
+    oz_whiff = 2.22,
+    gb_pct = 2.23,
+    hh_pct = 1.62
   )
   
-  # Identify significant changes
+  # Map metric names to percentile rank field names
+  metric_to_percentile <- list(
+    swing_pct = "swing_rank",
+    strike_pct = "strike_rank",
+    zone_pct = "zone_rank",
+    chase_pct = "chase_rank",
+    whiff_pct = "whiff_rank",
+    iz_whiff = "iz_whiff_rank",
+    oz_whiff = "oz_whiff_rank",
+    gb_pct = "gb_rank",
+    hh_pct = "hh_rank"
+  )
+  
+  # Identify significant percentile changes (performance KPIs)
   significant_changes <- list()
   for (metric in names(metric_changes)) {
-    if (metric == "pitches" || metric == "bip") next
-    if (abs(metric_changes[[metric]]) >= thresholds[[metric]]) {
-      direction <- if (metric_changes[[metric]] > 0) "↑" else "↓"
+    if (metric == "arsenal") next  # Handle arsenal separately below
+    if (!(metric %in% names(metric_to_percentile))) next
+    
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    if (abs(pctl_delta) >= thresholds[[metric]]) {
+      direction <- if (pctl_delta > 0) "↑" else "↓"
       significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                              sprintf("%+.1f", metric_changes[[metric]]), "%")
+                                              sprintf("%+.1f", pctl_delta), " percentile points")
+    }
+  }
+  
+  # Add significant arsenal changes with pitch identification
+  if (!is.null(metric_changes$arsenal)) {
+    arsenal_thresholds <- list(velo = 2.0, hb = 3.0, vb = 3.0, rel_side = 0.2, rel_height = 0.2)
+    
+    for (arsenal_key in names(metric_changes$arsenal)) {
+      arsenal_metric <- metric_changes$arsenal[[arsenal_key]]
+      if (!is.na(arsenal_metric$delta) && abs(arsenal_metric$delta) >= arsenal_thresholds[[arsenal_metric$metric]]) {
+        direction <- if (arsenal_metric$delta > 0) "↑" else "↓"
+        
+        # Format the display based on metric type
+        if (arsenal_metric$metric == "velo") {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - Velo: ", 
+                           sprintf("%+.1f", arsenal_metric$delta), " mph")
+        } else if (arsenal_metric$metric %in% c("hb", "vb")) {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - ", 
+                           toupper(gsub("_", "-", arsenal_metric$metric)), ": ", 
+                           sprintf("%+.1f", arsenal_metric$delta), " in")
+        } else {
+          display <- paste0(direction, " ", arsenal_metric$pitch, " - ", 
+                           arsenal_metric$metric, ": ", 
+                           sprintf("%+.2f", arsenal_metric$delta))
+        }
+        
+        significant_changes[[arsenal_key]] <- display
+      }
     }
   }
   
@@ -1503,27 +1779,71 @@ generate_pitcher_trend_report_mnl <- function(pitcher_id, pitcher_name, pitcher_
     "No significant metric changes detected"
   }
   
-  # Build full metrics comparison table
-  metrics_table <- "| Metric | Previous | Current | Change |\n|---|---|---|---|\n"
+  # Build full metrics comparison table with percentile ranks
+  metrics_table <- "| Metric | Previous Percentile | Current Percentile | Change |\n|---|---|---|---|\n"
   
-  metric_names <- names(metric_changes)
-  for (metric in metric_names) {
-    if (metric == "pitches" || metric == "bip") next
+  for (metric in names(metric_to_percentile)) {
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
     
-    prev_val <- prev_metrics[[metric]]
-    curr_val <- curr_metrics[[metric]]
-    delta <- metric_changes[[metric]]
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
+    }
     
-    if (is.na(prev_val) || is.na(curr_val)) next
+    metrics_table <- paste0(metrics_table,
+                           "| ", metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
+  }
+  
+  # Add arsenal metrics table if present
+  if (!is.null(metric_changes$arsenal)) {
+    arsenal_thresholds <- list(velo = 2.0, hb = 3.0, vb = 3.0, rel_side = 0.2, rel_height = 0.2)
+    arsenal_metrics_shown <- FALSE
+    arsenal_table <- "| Pitch | Metric | Previous | Current | Change |\n|---|---|---|---|---|\n"
     
-    if (grepl("pct", metric)) {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, "% | ", curr_val, "% | ",
-                             sprintf("%+.1f", delta), "% |\n")
-    } else {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.1f", delta), " |\n")
+    for (arsenal_key in names(metric_changes$arsenal)) {
+      arsenal_metric <- metric_changes$arsenal[[arsenal_key]]
+      if (!is.na(arsenal_metric$prev_val) && !is.na(arsenal_metric$curr_val)) {
+        arsenal_metrics_shown <- TRUE
+        
+        if (arsenal_metric$metric == "velo") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Velo (mph) | ",
+                                sprintf("%.1f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.1f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.1f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric %in% c("hb", "vb")) {
+          metric_name <- if (arsenal_metric$metric == "hb") "H-Break (in)" else "V-Break (in)"
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | ", metric_name, " | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric == "rel_side") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Release Side | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        } else if (arsenal_metric$metric == "rel_height") {
+          arsenal_table <- paste0(arsenal_table, "| ", arsenal_metric$pitch, " | Release Height | ",
+                                sprintf("%.2f", arsenal_metric$prev_val), " | ",
+                                sprintf("%.2f", arsenal_metric$curr_val), " | ",
+                                sprintf("%+.2f", arsenal_metric$delta), " |\n")
+        }
+      }
+    }
+    
+    if (arsenal_metrics_shown) {
+      metrics_table <- paste0(metrics_table, "\n## Arsenal Metrics\n", arsenal_table)
     }
   }
   
@@ -1535,7 +1855,7 @@ generate_pitcher_trend_report_mnl <- function(pitcher_id, pitcher_name, pitcher_
     "**Analysis Period:** Year-to-date through previous month vs year-to-date through current month\n\n",
     "## Significant Changes\n",
     changes_list, "\n\n",
-    "## Detailed Metrics Breakdown\n",
+    "## Detailed Metrics Breakdown (Percentile Ranks)\n",
     metrics_table, "\n",
     "## Analysis\n",
     "[Trend analysis pending]\n"
@@ -1548,7 +1868,7 @@ generate_pitcher_trend_report_mnl <- function(pitcher_id, pitcher_name, pitcher_
 }
 
 generate_batter_trend_report <- function(batter_id, batter_level, metric_changes, all_data) {
-  # Generates batter trend report showing month-over-month changes
+  # Generates batter trend report showing month-over-month changes with percentile ranks
   # Note: batter_name is not available in our data, using batter_id for identification
   # batter_level: league level ("MLB", "AAA", "AA", etc.)
 
@@ -1587,33 +1907,108 @@ generate_batter_trend_report <- function(batter_id, batter_level, metric_changes
     curr_metrics <- calculate_batter_overall_perf_milb(curr_data)
   }
   
-  # Thresholds for significance
+  # Calculate percentile ranks for both periods
+  tryCatch({
+    prev_percentiles <- calculate_batter_overall_percentiles(prev_metrics, batter_id, batter_level)
+    curr_percentiles <- calculate_batter_overall_percentiles(curr_metrics, batter_id, batter_level)
+    # Also get profile percentiles
+    prev_profile <- calculate_batter_profile(prev_data)
+    curr_profile <- calculate_batter_profile(curr_data)
+    prev_profile_pctl <- calculate_batter_profile_percentiles(prev_profile, batter_id, batter_level)
+    curr_profile_pctl <- calculate_batter_profile_percentiles(curr_profile, batter_id, batter_level)
+  }, error = function(e) {
+    # Skip report if percentile calculation fails
+    return(NULL)
+  })
+  
+  # If percentile calculation failed, return NULL to skip report
+  if (is.null(prev_percentiles) || is.null(curr_percentiles) || 
+      is.null(prev_profile_pctl) || is.null(curr_profile_pctl)) {
+    return(NULL)
+  }
+  
+  # Calibrated thresholds for percentile differences (performance KPIs)
   thresholds <- list(
-    swing_pct = 5.0,
-    chase_pct = 5.0,
-    foul_pct = 5.0,
-    whiff_pct = 5.0,
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
+    swing_pct = 1.93,
+    chase_pct = 2.31,
+    foul_pct = 2.17,
+    whiff_pct = 2.16,
+    iz_whiff = 2.24,
+    oz_whiff = 3.66,
+    gb_pct = 3.95,
     barrel_pct = 2.0,
-    hh_pct = 2.5,
-    slg = 0.050,
-    swspt_pct = 2.5
+    hh_pct = 3.48,
+    slg = 0.075,
+    swspt_pct = 3.64
   )
   
-  # Identify significant changes
+  # Add profile KPI thresholds
+  profile_thresholds <- list(
+    avg_la = 2.20,
+    la_std_dev = 1.53,
+    hh_la = 2.18,
+    oppo_fb_pct = 6.80,
+    oppo_fb_ev = 2.45,
+    high_aa_pct = 8.50
+  )
+  
+  # Map metric names to percentile rank field names
+  metric_to_percentile <- list(
+    swing_pct = "swing_rank",
+    chase_pct = "chase_rank",
+    foul_pct = "foul_rank",
+    whiff_pct = "whiff_rank",
+    iz_whiff = "iz_whiff_rank",
+    oz_whiff = "oz_whiff_rank",
+    gb_pct = "gb_rank",
+    barrel_pct = "barrel_rank",
+    hh_pct = "hh_rank",
+    slg = "slg_rank",
+    swspt_pct = "swspt_rank"
+  )
+  
+  # Map profile metrics to percentile rank field names
+  profile_to_percentile <- list(
+    avg_la = "avg_la_rank",
+    la_std_dev = "la_std_dev_rank",
+    hh_la = "hh_la_rank",
+    oppo_fb_pct = "oppo_fb_pct_rank",
+    oppo_fb_ev = "oppo_fb_ev_rank",
+    high_aa_pct = "high_aa_pct_rank"
+  )
+  
+  # Identify significant percentile changes for performance KPIs
   significant_changes <- list()
   for (metric in names(metric_changes)) {
-    if (metric == "bip") next
-    if (abs(metric_changes[[metric]]) >= thresholds[[metric]]) {
-      direction <- if (metric_changes[[metric]] > 0) "↑" else "↓"
-      if (metric == "slg") {
-        significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                                sprintf("%+.3f", metric_changes[[metric]]))
-      } else {
-        significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                                sprintf("%+.1f", metric_changes[[metric]]), "%")
+    if (metric == "profile") next  # Handle profile separately below
+    if (!(metric %in% names(metric_to_percentile))) next
+    
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    if (abs(pctl_delta) >= thresholds[[metric]]) {
+      direction <- if (pctl_delta > 0) "↑" else "↓"
+      significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
+                                              sprintf("%+.1f", pctl_delta), " percentile points")
+    }
+  }
+  
+  # Add significant profile changes
+  if (!is.null(metric_changes$profile)) {
+    for (profile_metric in names(metric_changes$profile)) {
+      if (!(profile_metric %in% names(profile_to_percentile))) next
+      
+      percentile_field <- profile_to_percentile[[profile_metric]]
+      prev_pctl <- prev_profile_pctl[[percentile_field]]
+      curr_pctl <- curr_profile_pctl[[percentile_field]]
+      pctl_delta <- curr_pctl - prev_pctl
+      
+      if (abs(pctl_delta) >= profile_thresholds[[profile_metric]]) {
+        direction <- if (pctl_delta > 0) "↑" else "↓"
+        significant_changes[[profile_metric]] <- paste0(direction, " ", profile_metric, ": ", 
+                                                        sprintf("%+.1f", pctl_delta), " percentile points")
       }
     }
   }
@@ -1625,32 +2020,57 @@ generate_batter_trend_report <- function(batter_id, batter_level, metric_changes
     "No significant metric changes detected"
   }
   
-  # Build full metrics comparison table
-  metrics_table <- "| Metric | Previous | Current | Change |\n|---|---|---|---|\n"
+  # Build full metrics comparison table with percentile ranks - include both performance and profile
+  metrics_table <- "| Metric | Previous Percentile | Current Percentile | Change |\n|---|---|---|---|\n"
   
-  metric_names <- names(metric_changes)
-  for (metric in metric_names) {
-    if (metric == "bip") next
+  # Add performance KPI percentiles
+  for (metric in names(metric_to_percentile)) {
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
     
-    prev_val <- prev_metrics[[metric]]
-    curr_val <- curr_metrics[[metric]]
-    delta <- metric_changes[[metric]]
-    
-    if (is.na(prev_val) || is.na(curr_val)) next
-    
-    if (grepl("pct", metric)) {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, "% | ", curr_val, "% | ",
-                             sprintf("%+.1f", delta), "% |\n")
-    } else if (metric == "slg") {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.3f", delta), " |\n")
-    } else {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.1f", delta), " |\n")
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
     }
+    
+    metrics_table <- paste0(metrics_table,
+                           "| ", metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
+  }
+  
+  # Add profile KPI percentiles
+  for (profile_metric in names(profile_to_percentile)) {
+    percentile_field <- profile_to_percentile[[profile_metric]]
+    prev_pctl <- prev_profile_pctl[[percentile_field]]
+    curr_pctl <- curr_profile_pctl[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
+    }
+    
+    metrics_table <- paste0(metrics_table,
+                           "| ", profile_metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
   }
 
   if (length(significant_changes) > 0) {
@@ -1660,7 +2080,7 @@ generate_batter_trend_report <- function(batter_id, batter_level, metric_changes
     "**Analysis Period:** Year-to-date through previous month vs year-to-date through current month\n\n",
     "## Significant Changes\n",
     changes_list, "\n\n",
-    "## Detailed Metrics Breakdown\n",
+    "## Detailed Metrics Breakdown (Percentile Ranks)\n",
     metrics_table, "\n",
     "## Analysis\n",
     "[Trend analysis pending]\n"
@@ -1669,14 +2089,11 @@ generate_batter_trend_report <- function(batter_id, batter_level, metric_changes
     NULL
   }
   
-  # Create report content
-  
-  
   return(report_content)
 }
 
 generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_changes, all_data) {
-  # Generates batter trend report showing month-over-month changes
+  # Generates batter trend report showing month-over-month changes with percentile ranks
   # Note: batter_name is not available in our data, using batter_id for identification
   # batter_level: league level ("MLB", "AAA", "AA", etc.)
 
@@ -1715,33 +2132,126 @@ generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_cha
     curr_metrics <- calculate_batter_overall_perf_milb(curr_data)
   }
   
-  # Thresholds for significance
+  # Calculate percentile ranks for both periods
+  tryCatch({
+    prev_percentiles <- calculate_batter_overall_percentiles(prev_metrics, batter_id, batter_level)
+    curr_percentiles <- calculate_batter_overall_percentiles(curr_metrics, batter_id, batter_level)
+    # Also get profile percentiles
+    prev_profile <- calculate_batter_profile_milb(prev_data)
+    curr_profile <- calculate_batter_profile_milb(curr_data)
+    prev_profile_pctl <- calculate_batter_profile_percentiles(prev_profile, batter_id, batter_level)
+    curr_profile_pctl <- calculate_batter_profile_percentiles(curr_profile, batter_id, batter_level)
+  }, error = function(e) {
+    # Skip report if percentile calculation fails
+    return(NULL)
+  })
+  
+  # If percentile calculation failed, return NULL to skip report
+  if (is.null(prev_percentiles) || is.null(curr_percentiles) || 
+      is.null(prev_profile_pctl) || is.null(curr_profile_pctl)) {
+    return(NULL)
+  }
+  
+  # Calibrated thresholds for percentile differences (performance KPIs)
   thresholds <- list(
-    swing_pct = 5.0,
-    chase_pct = 5.0,
-    foul_pct = 5.0,
-    whiff_pct = 5.0,
-    iz_whiff = 5.0,
-    oz_whiff = 5.0,
-    gb_pct = 2.5,
+    swing_pct = 1.93,
+    chase_pct = 2.31,
+    foul_pct = 2.17,
+    whiff_pct = 2.16,
+    iz_whiff = 2.24,
+    oz_whiff = 3.66,
+    gb_pct = 3.95,
     barrel_pct = 2.0,
-    hh_pct = 2.5,
-    slg = 0.050,
-    swspt_pct = 2.5
+    hh_pct = 3.48,
+    slg = 0.075,
+    swspt_pct = 3.64
   )
   
-  # Identify significant changes
+  # Add profile KPI thresholds
+  profile_thresholds <- list(
+    avg_la = 2.20,
+    la_std_dev = 1.53,
+    hh_la = 2.18,
+    oppo_fb_pct = 6.80,
+    oppo_fb_ev = 2.45,
+    high_aa_pct = 8.50
+  )
+  
+  # Map metric names to percentile rank field names
+  metric_to_percentile <- list(
+    swing_pct = "swing_rank",
+    chase_pct = "chase_rank",
+    foul_pct = "foul_rank",
+    whiff_pct = "whiff_rank",
+    iz_whiff = "iz_whiff_rank",
+    oz_whiff = "oz_whiff_rank",
+    gb_pct = "gb_rank",
+    barrel_pct = "barrel_rank",
+    hh_pct = "hh_rank",
+    slg = "slg_rank",
+    swspt_pct = "swspt_rank"
+  )
+  
+  # Map profile metrics to percentile rank field names
+  profile_to_percentile <- list(
+    avg_la = "avg_la_rank",
+    la_std_dev = "la_std_dev_rank",
+    hh_la = "hh_la_rank",
+    oppo_fb_pct = "oppo_fb_pct_rank",
+    oppo_fb_ev = "oppo_fb_ev_rank",
+    high_aa_pct = "high_aa_pct_rank"
+  )
+  
+  # Identify significant percentile changes for performance KPIs
   significant_changes <- list()
   for (metric in names(metric_changes)) {
-    if (metric == "bip") next
-    if (abs(metric_changes[[metric]]) >= thresholds[[metric]]) {
-      direction <- if (metric_changes[[metric]] > 0) "↑" else "↓"
-      if (metric == "slg") {
-        significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                                sprintf("%+.3f", metric_changes[[metric]]))
-      } else {
-        significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
-                                                sprintf("%+.1f", metric_changes[[metric]]), "%")
+    if (metric == "profile") next  # Handle profile separately below
+    if (!(metric %in% names(metric_to_percentile))) next
+    
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    if (abs(pctl_delta) >= thresholds[[metric]]) {
+      direction <- if (pctl_delta > 0) "↑" else "↓"
+      significant_changes[[metric]] <- paste0(direction, " ", metric, ": ", 
+                                              sprintf("%+.1f", pctl_delta), " percentile points")
+    }
+  }
+  
+  # Add significant profile changes
+  if (!is.null(metric_changes$profile)) {
+    for (profile_metric in names(metric_changes$profile)) {
+      if (!(profile_metric %in% names(profile_to_percentile))) next
+      
+      percentile_field <- profile_to_percentile[[profile_metric]]
+      prev_pctl <- prev_profile_pctl[[percentile_field]]
+      curr_pctl <- curr_profile_pctl[[percentile_field]]
+      pctl_delta <- curr_pctl - prev_pctl
+      
+      if (abs(pctl_delta) >= profile_thresholds[[profile_metric]]) {
+        direction <- if (pctl_delta > 0) "↑" else "↓"
+        significant_changes[[profile_metric]] <- paste0(direction, " ", profile_metric, ": ", 
+                                                        sprintf("%+.1f", pctl_delta), " percentile points")
+      }
+    }
+  }
+  
+  # Add significant profile changes
+  if (!is.null(metric_changes$profile)) {
+    for (profile_metric in names(metric_changes$profile)) {
+      if (!(profile_metric %in% names(profile_to_percentile))) next
+      
+      percentile_field <- profile_to_percentile[[profile_metric]]
+      prev_pctl <- prev_profile_pctl[[percentile_field]]
+      curr_pctl <- curr_profile_pctl[[percentile_field]]
+      pctl_delta <- curr_pctl - prev_pctl
+      
+      if (abs(pctl_delta) >= profile_thresholds[[profile_metric]]) {
+        direction <- if (pctl_delta > 0) "↑" else "↓"
+        significant_changes[[profile_metric]] <- paste0(direction, " ", profile_metric, ": ", 
+                                                        sprintf("%+.1f", pctl_delta), " percentile points")
       }
     }
   }
@@ -1753,32 +2263,57 @@ generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_cha
     "No significant metric changes detected"
   }
   
-  # Build full metrics comparison table
-  metrics_table <- "| Metric | Previous | Current | Change |\n|---|---|---|---|\n"
+  # Build full metrics comparison table with percentile ranks - include both performance and profile
+  metrics_table <- "| Metric | Previous Percentile | Current Percentile | Change |\n|---|---|---|---|\n"
   
-  metric_names <- names(metric_changes)
-  for (metric in metric_names) {
-    if (metric == "bip") next
+  # Add performance KPI percentiles
+  for (metric in names(metric_to_percentile)) {
+    percentile_field <- metric_to_percentile[[metric]]
+    prev_pctl <- prev_percentiles[[percentile_field]]
+    curr_pctl <- curr_percentiles[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
     
-    prev_val <- prev_metrics[[metric]]
-    curr_val <- curr_metrics[[metric]]
-    delta <- metric_changes[[metric]]
-    
-    if (is.na(prev_val) || is.na(curr_val)) next
-    
-    if (grepl("pct", metric)) {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, "% | ", curr_val, "% | ",
-                             sprintf("%+.1f", delta), "% |\n")
-    } else if (metric == "slg") {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.3f", delta), " |\n")
-    } else {
-      metrics_table <- paste0(metrics_table,
-                             "| ", metric, " | ", prev_val, " | ", curr_val, " | ",
-                             sprintf("%+.1f", delta), " |\n")
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
     }
+    
+    metrics_table <- paste0(metrics_table,
+                           "| ", metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
+  }
+  
+  # Add profile KPI percentiles
+  for (profile_metric in names(profile_to_percentile)) {
+    percentile_field <- profile_to_percentile[[profile_metric]]
+    prev_pctl <- prev_profile_pctl[[percentile_field]]
+    curr_pctl <- curr_profile_pctl[[percentile_field]]
+    pctl_delta <- curr_pctl - prev_pctl
+    
+    # if (is.na(prev_pctl) || is.na(curr_pctl)) next
+    if (
+      length(prev_pctl) != 1 ||
+      length(curr_pctl) != 1 ||
+      is.na(prev_pctl) ||
+      is.na(curr_pctl) ||
+      !is.finite(prev_pctl) ||
+      !is.finite(curr_pctl)
+    ) {
+      next
+    }
+    
+    metrics_table <- paste0(metrics_table,
+                           "| ", profile_metric, " | ", sprintf("%.1f", prev_pctl), "th | ", 
+                           sprintf("%.1f", curr_pctl), "th | ",
+                           sprintf("%+.1f", pctl_delta), " |\n")
   }
 
   if (length(significant_changes) > 0) {
@@ -1788,7 +2323,7 @@ generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_cha
     "**Analysis Period:** Year-to-date through previous month vs year-to-date through current month\n\n",
     "## Significant Changes\n",
     changes_list, "\n\n",
-    "## Detailed Metrics Breakdown\n",
+    "## Detailed Metrics Breakdown (Percentile Ranks)\n",
     metrics_table, "\n",
     "## Analysis\n",
     "[Trend analysis pending]\n"
@@ -1796,9 +2331,6 @@ generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_cha
   } else {
     NULL
   }
-  
-  # Create report content
-  
   
   return(report_content)
 }

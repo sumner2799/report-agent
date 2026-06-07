@@ -1027,7 +1027,7 @@ calculate_batter_profile_milb <- function(batter_data) {
   
   # Remove bunts and filter to balls in play with trajectory
   batter_data <- batter_data %>%
-    filter(!is.na(hitData.trajectory), !str_detect(result.description, paste(words_to_remove, collapse = "|"))) %>%
+    filter(!is.na(hitData.trajectory),details.isInPlay == TRUE, !str_detect(result.description, paste(words_to_remove, collapse = "|"))) %>%
       mutate(spray_angle = round(
         (atan(
           (hitData.coordinates.coordX-125.42)/(198.27-hitData.coordinates.coordY)
