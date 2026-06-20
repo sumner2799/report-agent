@@ -1103,7 +1103,7 @@ generate_new_player_reports <- function(players, data, all_data, max_game_date) 
       # Include level in filename for MiLB reports
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
-      report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
+      report_type <- if (any(grepl("Arsenal", report))) "newprofile" else "performance"
       filename <- sprintf("%s_%s%s%s_%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,
@@ -1297,7 +1297,7 @@ generate_new_player_reports_milb <- function(players, data, all_data, max_game_d
       # Include level in filename for MiLB reports
       level_prefix <- if (player_level != "MLB") paste0(player_level, "_") else ""
       # Determine report type for filename based on report content
-      report_type <- if (grepl("Arsenal", report)) "newprofile" else "performance"
+      report_type <- if (any(grepl("Arsenal", report))) "newprofile" else "performance"
       filename <- sprintf("%s_%s%s%s_%s_%s.md", 
                          format(Sys.Date(), "%Y-%m-%d"),
                          level_prefix,

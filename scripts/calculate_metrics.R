@@ -343,11 +343,16 @@ calculate_pitch_metrics <- function(data, pitch_type, batter_hand = NULL) {
     total_data <- data
   }
   
+  # Guard velocities: check for non-missing values before min/max
+  velo_valid <- pitch_data$release_speed[!is.na(pitch_data$release_speed)]
+  velo_min_val <- if (length(velo_valid) > 0) round(min(velo_valid), 1) else NA
+  velo_max_val <- if (length(velo_valid) > 0) round(max(velo_valid), 1) else NA
+  
   metrics <- list(
     usage_pct = (nrow(pitch_data) / nrow(total_data)) * 100,
     avg_velocity = round(mean(pitch_data$release_speed, na.rm = TRUE), 1),
-    velo_min = round(min(pitch_data$release_speed, na.rm = TRUE), 1),
-    velo_max = round(max(pitch_data$release_speed, na.rm = TRUE), 1),
+    velo_min = velo_min_val,
+    velo_max = velo_max_val,
     rel_side = round(mean(pitch_data$release_pos_x, na.rm = TRUE), 2),
     rel_height = round(mean(pitch_data$release_pos_z, na.rm = TRUE), 2),
     hb = round(mean(pitch_data$pfx_x, na.rm = TRUE) * 12, 1),
