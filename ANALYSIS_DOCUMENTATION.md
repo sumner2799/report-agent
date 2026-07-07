@@ -388,5 +388,231 @@ When returning to this work, remember:
 
 ---
 
-**Last Updated:** April 2026  
-**Status:** Analysis Complete
+# Temporal Evolution Analysis: Additional Patterns
+**Added:** July 2026 (Hitter Profile Evolution Project)
+
+This section documents additional best practices learned from multi-year temporal analysis projects (e.g., tracking hitter profile evolution across bi-weekly periods).
+
+## Multi-Year Data Handling
+
+### Year-Independent Period Assignment
+When working with data spanning multiple years, avoid hardcoding absolute dates. Instead, use month-day string comparison:
+
+```r
+# ❌ AVOID: Breaks on multi-year data
+period_num = case_when(
+  game_date <= as.Date("2026-04-11") ~ 1,
+  game_date <= as.Date("2026-04-17") ~ 2
+)
+
+# ✓ DO: Works across all years
+month_day = paste0(sprintf("%02d", month(game_date)), "-", sprintf("%02d", day(game_date)))
+period_num = case_when(
+  month_day < "04-11" ~ 1,
+  month_day < "04-17" ~ 2,
+  TRUE ~ 10
+)
+```
+
+**Benefit:** Single script handles 2021-2026 data without modification. Seasons recur predictably.
+
+### Validation for Multi-Year Processing
+Always verify:
+```r
+cat("Date range:", min(all_statcast$game_date), "to", max(all_statcast$game_date), "\n")
+cat("Years included:", unique(all_statcast$season_year), "\n")
+cat("Sample distribution:\n")
+print(table(all_statcast$season_year))
+```
+
+This catches data loading issues early (e.g., if only 2026 loaded instead of 2021-2026).
+
+## Cumulative Metric Calculation Pattern
+
+### Two-Stage Aggregation (Sums First, Then Calculations)
+
+When calculating cumulative metrics across time periods, aggregate raw sums first, then derive metrics:
+
+```r
+# ✓ DO: Calculate cumulative sums, then convert to rates/averages
+hitter_periods <- all_statcast %>%
+  group_by(batter, season_year, period_num) %>%
+  summarise(
+    BBE = sum(is_bbe, na.rm = TRUE),
+    Sum_LA = sum(launch_angle[is_bbe], na.rm = TRUE),
+    Sum_Launch_Speed = sum(launch_speed[is_bbe], na.rm = TRUE),
+    Count_Sweet_Spot = sum(is_sweet_spot, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(batter, season_year, period_num) %>%
+  group_by(batter, season_year) %>%
+  mutate(
+    Cumul_BBE = cumsum(BBE),
+    Cumul_Sum_LA = cumsum(Sum_LA),
+    Cumul_Avg_LA = round(Cumul_Sum_LA / Cumul_BBE, 1),
+    Cumul_Sweet_Spot_Pct = round(100 * cumsum(Count_Sweet_Spot) / Cumul_BBE, 1)
+  )
+
+# ❌ AVOID: Taking cumsum of already-averaged values
+# This creates mathematically invalid "average of averages"
+```
+
+**Why:** Cumulative sums of raw counts are mathematically sound. Then convert to rates using cumulative totals.
+
+### Merging Classifications After Calculation
+Classify profiles AFTER aggregating, then merge back:
+
+```r
+# ✓ DO: Classify separately, merge later
+hitter_full_season <- hitter_periods %>%
+  group_by(batter, season_year) %>%
+  summarise(...) %>%
+  mutate(profile_type = case_when(
+    condition_1 ~ "Caissie",
+    condition_2 ~ "Raleigh",
+    TRUE ~ "Other"
+  ))
+
+hitter_periods_profiled <- hitter_periods %>%
+  left_join(
+    hitter_full_season %>% select(batter, season_year, profile_type),
+    by = c("batter", "season_year")
+  )
+```
+
+**Benefit:** Avoids recalculating profile classification for every period. Single full-season classification, then propagated to period-level data.
+
+## Type Handling in dplyr Context
+
+### Vector Recycling in `case_when()`
+When using external data (e.g., percentile thresholds) within `mutate()` + `case_when()`, coerce to list:
+
+```r
+# Data from supporting file
+percentiles <- supporting_data %>%
+  summarise(avg_la_70 = quantile(Avg_LA, 0.70), ...)
+
+# ❌ AVOID: Tibble causes vector recycling error
+profile_type = case_when(
+  Avg_LA >= percentiles$avg_la_70 ~ "High"
+)
+# Error: Can't recycle `..1` (size 0) to match `..3` (size 297)
+
+# ✓ DO: Convert to list for scalar access
+percentiles <- supporting_data %>%
+  summarise(...) %>%
+  as.list()
+
+profile_type = case_when(
+  Avg_LA >= percentiles$avg_la_70 ~ "High"
+)
+```
+
+**Key insight:** Lists return scalars; tibbles return vectors. In `case_when()` context, always use lists for threshold/cutoff data.
+
+## Delta Calculation for Trend Analysis
+
+### Period-to-Period Change (Identifying Improvement/Decline Patterns)
+When analyzing within-season trajectories:
+
+```r
+# Calculate deltas AFTER arranging by time
+df <- df %>%
+  arrange(batter, season_year, period_num) %>%
+  group_by(batter, season_year) %>%
+  mutate(
+    Delta_Metric = Cumul_Metric - lag(Cumul_Metric),
+    .groups = "drop"
+  )
+
+# Then aggregate by profile type and period
+delta_summary <- df %>%
+  group_by(profile_type, period_num) %>%
+  summarise(Avg_Delta = mean(Delta_Metric, na.rm = TRUE), .groups = "drop")
+```
+
+**Pattern:** This isolates improvement within each player's trajectory, then averages across profiles. Controls for baseline differences between players.
+
+### First-to-Last Comparison (Overall Arc)
+For comparing season start to finish:
+
+```r
+improvement_table <- df %>%
+  arrange(batter, season_year, period_num) %>%
+  group_by(batter, last_first_name, season_year) %>%
+  summarise(
+    Start_Metric = first(Cumul_Metric),
+    End_Metric = last(Cumul_Metric),
+    Delta = End_Metric - Start_Metric,
+    Pct_Change = (Delta / Start_Metric) * 100,
+    .groups = "drop"
+  )
+```
+
+**Use case:** Summary table showing each player's overall improvement trajectory.
+
+## Visualization Evolution Best Practice
+
+### Iterate from Detail to Insight
+
+**Phase 1: Individual Lines** (exploratory, understand variability)
+```r
+ggplot(df) +
+  geom_line(aes(x = period, y = metric, group = interaction(batter, year), 
+                color = profile_type), alpha = 0.3)
+```
+→ Shows full variation; helps spot outliers and patterns across individual trajectories.
+
+**Phase 2: Aggregated Lines** (identify profile-level trends)
+```r
+ggplot(df %>% group_by(profile_type, period) %>% summarise(avg_metric = mean(metric))) +
+  geom_line(aes(x = period, y = avg_metric, color = profile_type))
+```
+→ Cleaner; shows whether profiles diverge/converge.
+
+**Phase 3: Delta/Trend Lines** (isolate improvement mechanism)
+```r
+ggplot(df %>% group_by(profile_type, period) %>% summarise(avg_delta = mean(delta))) +
+  geom_line(aes(x = period, y = avg_delta, color = profile_type)) +
+  geom_hline(yintercept = 0, linetype = "dashed")
+```
+→ Shows period-to-period change rates; reveals acceleration/deceleration patterns.
+
+**Progression:** Each visualization answers a different question. Use all three iteratively, not as final outputs.
+
+## Configuration & Flexibility
+
+### Calibration Points for Temporal Analysis
+Document these at script head:
+
+```r
+# Temporal boundaries
+SEASON_START <- "03-01"         # Month-day format for year-independence
+SEASON_END <- "09-30"
+ANALYSIS_PERIODS <- 10          # Number of time windows
+
+# Data filters
+MIN_PLATE_APPEARANCES <- 100    # Per-player threshold
+MIN_BBE_PER_PERIOD <- 10        # Per-period threshold
+
+# Threshold percentiles
+LA_PERCENTILE <- 0.70           # 70th for launch angle profiles
+SLOGAN_PERCENTILE <- 0.80       # 80th for production
+```
+
+**Why:** Makes it easy to test sensitivity without code changes. Single place to adjust all thresholds.
+
+### Always Check File State Before Editing
+
+Before making edits to an existing analysis script:
+```r
+# Terminal: Check git status to see if file was modified
+git diff scripts/analyze_hitter_profile_evolution.R | head -50
+```
+
+Document any formatter changes or manual edits by others before proceeding. This prevents overwriting important modifications.
+
+---
+
+**Last Updated:** July 2026  
+**Status:** Analysis Complete; Documentation Enhanced

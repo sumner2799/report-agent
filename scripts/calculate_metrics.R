@@ -348,16 +348,47 @@ calculate_pitch_metrics <- function(data, pitch_type, batter_hand = NULL) {
   velo_min_val <- if (length(velo_valid) > 0) round(min(velo_valid), 1) else NA
   velo_max_val <- if (length(velo_valid) > 0) round(max(velo_valid), 1) else NA
   
+  # Safe column access with fallback to NA if column doesn't exist
+  rel_side_val <- if ("release_pos_x" %in% colnames(pitch_data)) {
+    round(mean(pitch_data$release_pos_x, na.rm = TRUE), 2)
+  } else {
+    NA
+  }
+  
+  rel_height_val <- if ("release_pos_z" %in% colnames(pitch_data)) {
+    round(mean(pitch_data$release_pos_z, na.rm = TRUE), 2)
+  } else {
+    NA
+  }
+  
+  hb_val <- if ("pfx_x" %in% colnames(pitch_data)) {
+    round(mean(pitch_data$pfx_x, na.rm = TRUE) * 12, 1)
+  } else {
+    NA
+  }
+  
+  vb_val <- if ("pfx_z" %in% colnames(pitch_data)) {
+    round(mean(pitch_data$pfx_z, na.rm = TRUE) * 12, 1)
+  } else {
+    NA
+  }
+  
+  spin_val <- if ("release_spin_rate" %in% colnames(pitch_data)) {
+    round(mean(pitch_data$release_spin_rate, na.rm = TRUE), 0)
+  } else {
+    NA
+  }
+  
   metrics <- list(
     usage_pct = (nrow(pitch_data) / nrow(total_data)) * 100,
     avg_velocity = round(mean(pitch_data$release_speed, na.rm = TRUE), 1),
     velo_min = velo_min_val,
     velo_max = velo_max_val,
-    rel_side = round(mean(pitch_data$release_pos_x, na.rm = TRUE), 2),
-    rel_height = round(mean(pitch_data$release_pos_z, na.rm = TRUE), 2),
-    hb = round(mean(pitch_data$pfx_x, na.rm = TRUE) * 12, 1),
-    vb = round(mean(pitch_data$pfx_z, na.rm = TRUE) * 12, 1),
-    spin = round(mean(pitch_data$release_spin_rate, na.rm = TRUE), 0),
+    rel_side = rel_side_val,
+    rel_height = rel_height_val,
+    hb = hb_val,
+    vb = vb_val,
+    spin = spin_val,
     whiff_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / nrow(pitch_data)) * 100,
     swstr_pct = (sum(pitch_data$description == "swinging_strike", na.rm = TRUE) / sum(pitch_data$type == "X", na.rm = TRUE)) * 100,
     contact_pct = (sum(pitch_data$type != "B" & pitch_data$type != "X", na.rm = TRUE) / nrow(pitch_data)) * 100,

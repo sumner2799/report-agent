@@ -765,14 +765,22 @@ compare_pitcher_trend <- function(pitcher_id, pitcher_name, pitcher_level, prev_
     if (.x == "arsenal") {
       # Check if any pitch meets arsenal thresholds
       return(any(map_lgl(metric_deltas$arsenal, ~{
-        abs(.x$delta) >= thresholds[[.x$metric]]
-      })))
+        if (!(.x$metric %in% names(thresholds))) return(FALSE)
+        delta_val <- .x$delta
+        if (length(delta_val) != 1) return(FALSE)
+        if (is.na(delta_val)) return(FALSE)
+        abs(delta_val) >= thresholds[[.x$metric]]
+      }), na.rm = TRUE))
     } else {
-      return(abs(metric_deltas[[.x]]) >= thresholds[[.x]])
+      if (!(.x %in% names(thresholds))) return(FALSE)
+      delta_val <- metric_deltas[[.x]]
+      if (length(delta_val) != 1) return(FALSE)
+      if (is.na(delta_val)) return(FALSE)
+      return(abs(delta_val) >= thresholds[[.x]])
     }
   })
   
-  if (any(significant_changes)) {
+  if (any(significant_changes, na.rm = TRUE)) {
     return(tibble(
       player_id = pitcher_id,
       player_name = pitcher_name,
@@ -910,12 +918,15 @@ compare_batter_trend <- function(batter_id, batter_level, prev_period_end, curr_
   # Check if any metric has significant change
   significant_changes <- map_lgl(names(metric_deltas), ~{
     if (.x %in% names(thresholds)) {
-      return(abs(metric_deltas[[.x]]) >= thresholds[[.x]])
+      delta_val <- metric_deltas[[.x]]
+      if (length(delta_val) != 1) return(FALSE)
+      if (is.na(delta_val)) return(FALSE)
+      return(abs(delta_val) >= thresholds[[.x]])
     }
     return(FALSE)
   })
   
-  if (any(significant_changes)) {
+  if (any(significant_changes, na.rm = TRUE)) {
     return(tibble(
       player_id = batter_id,
       player_name = batter_name,  
@@ -2086,7 +2097,7 @@ generate_batter_trend_report <- function(batter_id, batter_level, metric_changes
     "[Trend analysis pending]\n"
   )
   } else {
-    NULL
+    report_content <- NULL
   }
   
   return(report_content)
@@ -2329,7 +2340,7 @@ generate_batter_trend_report_mnl <- function(batter_id, batter_level, metric_cha
     "[Trend analysis pending]\n"
   )
   } else {
-    NULL
+    report_content <- NULL
   }
   
   return(report_content)
