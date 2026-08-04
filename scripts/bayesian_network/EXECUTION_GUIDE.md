@@ -86,8 +86,6 @@ prepare_training()
   ├─ [Within prepare_training_data()]:
   │   ├─ normalize_spray_angle()
   │   │   └─ Converts plate coordinates to pull/oppo/center (handedness-relative)
-  │   ├─ compute_contact_depth()
-  │   │   └─ Computes depth from back of plate
   │   ├─ discretize_variables()
   │   │   └─ Bins attack_angle, launch_speed, launch_angle, etc.
   │   └─ select & rename columns for network
@@ -216,18 +214,16 @@ Total rows loaded: 150000
 
 === Step 2: Normalizing Spray Angle ===
 
-=== Step 3: Computing Contact Depth ===
+=== Step 3: Discretizing Variables ===
 
-=== Step 4: Discretizing Variables ===
+=== Step 4: Selecting Network Columns ===
 
-=== Step 5: Selecting Network Columns ===
-
-=== Step 6: Handling Missing Data ===
+=== Step 5: Handling Missing Data ===
 Initial rows: 150000
 Complete cases: 82000
 Data retention: 54.7%
 
-=== Step 7: Converting to Factors ===
+=== Step 6: Converting to Factors ===
 
 === Training Data Summary ===
 Dimensions: 82000 rows × 10 columns

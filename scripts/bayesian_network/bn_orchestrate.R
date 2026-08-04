@@ -110,7 +110,6 @@ prepare_training <- function(network_config) {
   cat("\n=== SECTION 2: Data Preparation (MLB Training) ===\n")
   
   training_data <- prepare_training_data(
-    raw_data_dir = CONFIG$raw_data_dir,
     discretization_scheme = network_config$discretization_scheme,
     min_data_quality_threshold = CONFIG$min_data_retention
   )
@@ -158,7 +157,6 @@ apply_to_milb <- function(fitted_bn, network_config) {
   
   # Prepare MiLB data
   milb_data <- prepare_milb_for_inference(
-    raw_data_dir = CONFIG$raw_data_dir,
     discretization_scheme = network_config$discretization_scheme
   )
   

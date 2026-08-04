@@ -193,7 +193,7 @@ validate_network_structure <- function(bn) {
   cat("\n=== Network Validation ===\n")
   cat("Nodes:", length(nodes(bn)), "\n")
   cat("Arcs:", length(arcs(bn)), "\n")
-  cat("Acyclic:", is.acyclic(bn), "\n")
+  cat("Acyclic:", acyclic(bn), "\n")
   
   # Check for orphaned nodes
   orphaned <- which(sapply(nodes(bn), function(node) {

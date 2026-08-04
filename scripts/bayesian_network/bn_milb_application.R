@@ -91,7 +91,8 @@ normalize_milb_field_names <- function(df) {
 
 discretize_milb_variables <- function(df, discretization_scheme) {
   # Apply same discretization to MiLB data as training data
-  # Important: Use same break points as MLB training to ensure consistency
+  # Important: Only discretize observable variables (launch_speed, launch_angle)
+  # Hidden biomechanics will be filled in by inference as NA (by design)
   
   df <- df %>%
     mutate(
@@ -106,13 +107,6 @@ discretize_milb_variables <- function(df, discretization_scheme) {
         launch_angle,
         breaks = discretization_scheme$launch_angle$breaks,
         labels = discretization_scheme$launch_angle$levels,
-        include.lowest = TRUE
-      ),
-      
-      intercept_y_binned = cut(
-        pz,  # Plate Z (height)
-        breaks = discretization_scheme$intercept_y$breaks,
-        labels = discretization_scheme$intercept_y$levels,
         include.lowest = TRUE
       )
     )

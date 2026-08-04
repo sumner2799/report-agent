@@ -51,7 +51,6 @@ cat("✓ Network created with", length(nodes(bn)), "nodes\n")
 # Step 2: Prepare training data
 cat("\nStep 2: Preparing MLB training data...\n")
 training_data <- prepare_training_data(
-  raw_data_dir = "/Users/andrewsumner/Documents/Github/report-agent/data/raw",
   discretization_scheme = discretization_scheme
 )
 cat("✓ Training data ready:", nrow(training_data), "pitches\n")
@@ -69,7 +68,6 @@ cat("✓ Network parameters learned\n")
 # Step 4: Apply to MiLB data
 cat("\nStep 4: Inferring biomechanics for MiLB pitches...\n")
 milb_data <- prepare_milb_for_inference(
-  raw_data_dir = "/Users/andrewsumner/Documents/Github/report-agent/data/raw",
   discretization_scheme = discretization_scheme
 )
 
@@ -102,7 +100,6 @@ source("/Users/andrewsumner/Documents/Github/report-agent/scripts/bayesian_netwo
 source("/Users/andrewsumner/Documents/Github/report-agent/scripts/bayesian_network/bn_inference_engine.R")
 
 milb_data <- prepare_milb_for_inference(
-  raw_data_dir = "/Users/andrewsumner/Documents/Github/report-agent/data/raw",
   discretization_scheme = discretization_scheme
 )
 

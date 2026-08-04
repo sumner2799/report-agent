@@ -42,6 +42,11 @@ game_year = 2026
   .con = conn
   )
 )
+
+statcast_data$launch_speed <- as.numeric(statcast_data$launch_speed)
+statcast_data$launch_angle <- as.numeric(statcast_data$launch_angle)
+statcast_data$hc_x <- as.numeric(statcast_data$hc_x)
+statcast_data$hc_y <- as.numeric(statcast_data$hc_y)
   
   cat("Total rows loaded:", nrow(statcast_data), "\n")
   return(statcast_data)
@@ -157,36 +162,13 @@ normalize_spray_angle <- function(df) {
 # ==============================================================================
 
 discretize_variables <- function(df, discretization_scheme) {
-  # Apply binning scheme to continuous variables
-  # discretization_scheme comes from bn_network_definition.R
+  # Apply binning scheme to observable variables only
+  # We only discretize what we actually observe in the data
+  # The hidden biomechanics will be imputed via inference
   
   df <- df %>%
     mutate(
-      # Attack angle
-      attack_angle_binned = cut(
-        attack_angle,
-        breaks = discretization_scheme$attack_angle$breaks,
-        labels = discretization_scheme$attack_angle$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Swing tilt
-      swing_path_tilt_binned = cut(
-        tilt,
-        breaks = discretization_scheme$swing_path_tilt$breaks,
-        labels = discretization_scheme$swing_path_tilt$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Bat speed
-      bat_speed_binned = cut(
-        bavx,
-        breaks = discretization_scheme$bat_speed$breaks,
-        labels = discretization_scheme$bat_speed$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Launch speed
+      # Launch speed (observable)
       launch_speed_binned = cut(
         launch_speed,
         breaks = discretization_scheme$launch_speed$breaks,
@@ -194,35 +176,11 @@ discretize_variables <- function(df, discretization_scheme) {
         include.lowest = TRUE
       ),
       
-      # Launch angle
+      # Launch angle (observable)
       launch_angle_binned = cut(
         launch_angle,
         breaks = discretization_scheme$launch_angle$breaks,
         labels = discretization_scheme$launch_angle$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Intercept X (horizontal)
-      intercept_x_binned = cut(
-        px,
-        breaks = discretization_scheme$intercept_x$breaks,
-        labels = discretization_scheme$intercept_x$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Intercept Y (vertical/height)
-      intercept_y_binned = cut(
-        pz,
-        breaks = discretization_scheme$intercept_y$breaks,
-        labels = discretization_scheme$intercept_y$levels,
-        include.lowest = TRUE
-      ),
-      
-      # Attack direction (convert from continuous to categorical)
-      attack_direction_binned = cut(
-        baxisx,
-        breaks = c(-90, -30, 30, 90),
-        labels = c("pull", "center", "oppo"),
         include.lowest = TRUE
       )
     )
@@ -255,12 +213,8 @@ prepare_training_data <- function(
   cat("\n=== Step 2: Normalizing Spray Angle ===\n")
   mlb_data <- normalize_spray_angle(mlb_data)
   
-  # 3. Compute contact depth
-  cat("\n=== Step 3: Computing Contact Depth ===\n")
-  mlb_data <- compute_contact_depth(mlb_data)
-  
-  # 4. Discretize continuous variables
-  cat("\n=== Step 4: Discretizing Variables ===\n")
+  # 3. Discretize continuous variables
+  cat("\n=== Step 3: Discretizing Variables ===\n")
   mlb_data <- discretize_variables(mlb_data, discretization_scheme)
   
   # 5. Select only columns needed for network
@@ -270,15 +224,7 @@ prepare_training_data <- function(
     # Pitch context (observable)
     "stand",
     "zone",
-    "pitch_type",
-    
-    # Hidden biomechanics (targets)
-    "attack_angle_binned",
-    "swing_path_tilt_binned",
-    "attack_direction_binned",
-    "bat_speed_binned",
-    "intercept_x_binned",
-    "intercept_y_binned",
+    "pitch_name",
     
     # Observable outcomes (evidence)
     "launch_speed_binned",
@@ -289,26 +235,39 @@ prepare_training_data <- function(
   training_data <- mlb_data %>%
     select(all_of(network_cols)) %>%
     rename(
-      attack_angle = attack_angle_binned,
-      swing_path_tilt = swing_path_tilt_binned,
-      attack_direction = attack_direction_binned,
-      bat_speed = bat_speed_binned,
-      intercept_x = intercept_x_binned,
-      intercept_y = intercept_y_binned,
       launch_speed = launch_speed_binned,
       launch_angle = launch_angle_binned,
       spray_angle = spray_angle_normalized
     )
   
-  # 6. Remove incomplete cases
+  # Add placeholder NA columns for hidden biomechanics with proper factor levels
+  # These are what we're trying to LEARN/IMPUTE, so they're NA in training data
+  # But they need to have the proper levels from the discretization scheme
+  training_data <- training_data %>%
+    mutate(
+      attack_angle = factor(NA, levels = discretization_scheme$attack_angle$levels),
+      swing_path_tilt = factor(NA, levels = discretization_scheme$swing_path_tilt$levels),
+      attack_direction = factor(NA, levels = discretization_scheme$attack_direction$levels),
+      bat_speed = factor(NA, levels = discretization_scheme$bat_speed$levels),
+      intercept_x = factor(NA, levels = discretization_scheme$intercept_x$levels),
+      intercept_y = factor(NA, levels = discretization_scheme$intercept_y$levels),
+      outcome = factor(NA, levels = c("hit", "out", "strikeout"))
+    )
+  
+  # 6. Remove incomplete cases (only for OBSERVABLE columns)
   cat("\n=== Step 6: Handling Missing Data ===\n")
   initial_rows <- nrow(training_data)
-  training_data <- training_data %>% drop_na()
+  
+  # Only drop rows where observable columns are NA
+  # The hidden biomechanics are intentionally NA for imputation
+  training_data <- training_data %>% 
+    drop_na(stand, zone, pitch_name, launch_speed, launch_angle, spray_angle)
+  
   final_rows <- nrow(training_data)
   data_retention <- final_rows / initial_rows * 100
   
   cat("Initial rows:", initial_rows, "\n")
-  cat("Complete cases:", final_rows, "\n")
+  cat("Complete cases (observable only):", final_rows, "\n")
   cat("Data retention:", sprintf("%.1f%%", data_retention), "\n")
   
   if (data_retention < min_data_quality_threshold * 100) {
@@ -341,7 +300,6 @@ if (!exists("data_preparation_config")) {
     load_mlb_statcast_files = load_mlb_statcast_files,
     create_field_mapping = create_field_mapping,
     normalize_spray_angle = normalize_spray_angle,
-    compute_contact_depth = compute_contact_depth,
     discretize_variables = discretize_variables,
     prepare_training_data = prepare_training_data
   )
