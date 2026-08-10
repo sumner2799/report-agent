@@ -113,19 +113,23 @@ imputed <- list(
   milb_data = fread("data/processed/bayesian_imputation/audit_trail.csv")
 )
 
-# Load actual biomechanics data from new MiLB files
-actual_biomechanics <- fread("data/raw/milb_statcast_with_biomechanics.csv")
+# Load actual biomechanics data from new MiLB files (optional - for future validation)
+# NOTE: This file doesn't exist yet. When real biomechanics data arrives, save it as:
+# data/raw/milb_statcast_with_biomechanics.csv
+# Then uncomment the line below to validate predictions
 
-# Validate
-validation <- validate_network(imputed, actual_biomechanics)
+# actual_biomechanics <- fread("data/raw/milb_statcast_with_biomechanics.csv")
+
+# Validate (optional - only when actual data is available)
+# validation <- validate_network(imputed, actual_biomechanics)
 ```
 
-**Outputs**: 
+**Outputs** (when actual biomechanics data arrives): 
 - Accuracy by variable and confounding factors
 - Error patterns (e.g., "swing_tilt predictions wrong for LHB on inside pitches")
 - Recommendations for network refinement
 
-### Phase 3: Iterate
+### Phase 3: Iterate (Future)
 
 ```r
 # Implement recommended changes to bn_network_definition.R

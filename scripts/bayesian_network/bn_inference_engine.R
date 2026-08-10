@@ -49,22 +49,30 @@ infer_biomechanics_single_pitch <- function(
     
     tryCatch({
       if (method == "exact") {
-        # Use exact inference (cpquery returns conditional probabilities)
+        # Use likelihood weighting as approximate exact inference
+        # (bnlearn doesn't have a true "exact" inference method for cpdist)
         prob_dist <- cpdist(
           fitted_bn,
           nodes = node,
           evidence = evidence,
-          method = "exact"
+          method = "lw",
+          n = 10000
         )
       } else if (method == "ls") {
-        # Use likelihood sampling (approximate, faster for large networks)
+        # Use logic sampling (forward sampling)
         prob_dist <- cpdist(
           fitted_bn,
           nodes = node,
           evidence = evidence,
           method = "ls",
-          n = 10000  # Number of samples
+          n = 10000
         )
+      }
+      
+      # Check if cpdist returned empty result (evidence doesn't match CPT)
+      if (is.null(prob_dist) || nrow(prob_dist) == 0) {
+        # Return empty result - will be skipped in formatting
+        return(NULL)
       }
       
       # Convert frequency table to probabilities
@@ -124,13 +132,33 @@ infer_biomechanics_batch <- function(
   n_pitches <- nrow(milb_data)
   results_list <- list()
   
+  # Verify input data types
+  if (verbose) {
+    cat("\n=== Data Type Verification ===\n")
+    cat("Evidence columns:\n")
+    for (col in c("stand", "zone", "pitch_name", "launch_speed", "launch_angle", "spray_angle")) {
+      if (col %in% colnames(milb_data)) {
+        col_class <- class(milb_data[[col]])
+        cat(sprintf("  %s: %s\n", col, col_class))
+        if (col_class != "factor") {
+          cat(sprintf("    WARNING: Expected factor, got %s\n", col_class))
+        }
+      }
+    }
+  }
+  
   if (verbose) {
     cat(sprintf("\n=== Inferring Biomechanics for %d Pitches ===\n", n_pitches))
   }
   
+  n_success <- 0
+  n_no_evidence <- 0
+  n_inference_failed <- 0
+  
   for (i in seq_len(n_pitches)) {
-    if (verbose && i %% 100 == 0) {
-      cat(sprintf("  Progress: %d/%d pitches\n", i, n_pitches))
+    if (verbose && i %% 1000 == 0) {
+      cat(sprintf("  Progress: %d/%d pitches (Success: %d, No evidence: %d, Failed: %d)\n", 
+                  i, n_pitches, n_success, n_no_evidence, n_inference_failed))
     }
     
     # Extract pitch row
@@ -139,26 +167,33 @@ infer_biomechanics_batch <- function(
     # Convert to evidence list (only observed variables)
     evidence <- list()
     
-    # Pitch context
+    # Pitch context - keep as factors
     if (!is.na(pitch_row$stand)) {
-      evidence$stand <- as.character(pitch_row$stand)
+      evidence$stand <- pitch_row$stand
     }
     if (!is.na(pitch_row$zone)) {
-      evidence$zone <- as.character(pitch_row$zone)
+      evidence$zone <- pitch_row$zone
     }
     if (!is.na(pitch_row$pitch_name)) {
-      evidence$pitch_name <- as.character(pitch_row$pitch_name)
+      evidence$pitch_name <- pitch_row$pitch_name
     }
     
-    # Observable outcomes
+    # Observable outcomes - keep as factors
     if (!is.na(pitch_row$launch_angle)) {
-      evidence$launch_angle <- as.character(pitch_row$launch_angle)
+      evidence$launch_angle <- pitch_row$launch_angle
     }
     if (!is.na(pitch_row$launch_speed)) {
-      evidence$launch_speed <- as.character(pitch_row$launch_speed)
+      evidence$launch_speed <- pitch_row$launch_speed
     }
     if (!is.na(pitch_row$spray_angle)) {
-      evidence$spray_angle <- as.character(pitch_row$spray_angle)
+      evidence$spray_angle <- pitch_row$spray_angle
+    }
+    
+    # Check if we have evidence
+    if (length(evidence) == 0) {
+      n_no_evidence <- n_no_evidence + 1
+      results_list[[i]] <- list()
+      next
     }
     
     # Run inference
@@ -169,12 +204,23 @@ infer_biomechanics_batch <- function(
       method = method
     )
     
+    # Track success
+    if (!is.null(inference_result) && length(inference_result) > 0) {
+      n_success <- n_success + 1
+    } else {
+      n_inference_failed <- n_inference_failed + 1
+    }
+    
     # Attach to results
     results_list[[i]] <- inference_result
   }
   
   if (verbose) {
-    cat(sprintf("✓ Completed inference for %d pitches\n", n_pitches))
+    cat(sprintf("\n=== Inference Complete ===\n"))
+    cat(sprintf("Total pitches: %d\n", n_pitches))
+    cat(sprintf("  ✓ Successful: %d (%.1f%%)\n", n_success, n_success/n_pitches*100))
+    cat(sprintf("  ✗ No evidence: %d (%.1f%%)\n", n_no_evidence, n_no_evidence/n_pitches*100))
+    cat(sprintf("  ✗ Inference failed: %d (%.1f%%)\n", n_inference_failed, n_inference_failed/n_pitches*100))
   }
   
   return(results_list)
@@ -184,7 +230,7 @@ infer_biomechanics_batch <- function(
 # FORMAT INFERENCE RESULTS FOR EXPORT
 # ==============================================================================
 
-format_inference_results_long <- function(inference_results) {
+format_inference_results_long <- function(inference_results, milb_data = NULL) {
   # Convert list of inference results to long-format data frame
   # One row per pitch-variable combination
   #
@@ -196,6 +242,11 @@ format_inference_results_long <- function(inference_results) {
   
   for (pitch_idx in seq_along(inference_results)) {
     pitch_result <- inference_results[[pitch_idx]]
+    
+    # Skip if no results for this pitch
+    if (is.null(pitch_result) || length(pitch_result) == 0) {
+      next
+    }
     
     for (var in names(pitch_result)) {
       prob_df <- pitch_result[[var]]$all_probabilities %>%
@@ -209,13 +260,23 @@ format_inference_results_long <- function(inference_results) {
     }
   }
   
+  # Handle empty results
+  if (length(formatted_list) == 0) {
+    return(data.frame(
+      pitch_id = integer(),
+      variable = character(),
+      level = character(),
+      probability = numeric()
+    ))
+  }
+  
   result_df <- bind_rows(formatted_list) %>%
     select(pitch_id, variable, level, probability)
   
   return(result_df)
 }
 
-format_inference_results_wide <- function(inference_results) {
+format_inference_results_wide <- function(inference_results, milb_data = NULL) {
   # Convert list of inference results to wide-format data frame
   # One row per pitch, columns for each variable's top prediction + confidence
   #
@@ -225,10 +286,29 @@ format_inference_results_wide <- function(inference_results) {
   
   formatted_list <- list()
   
+  # Get list of all variables from first non-empty result
+  all_vars <- c()
+  for (pitch_result in inference_results) {
+    if (!is.null(pitch_result) && length(pitch_result) > 0) {
+      all_vars <- names(pitch_result)
+      break
+    }
+  }
+  
   for (pitch_idx in seq_along(inference_results)) {
     pitch_result <- inference_results[[pitch_idx]]
     
     row_data <- data.frame(pitch_id = pitch_idx)
+    
+    # If no results for this pitch, create row with NAs for all variables
+    if (is.null(pitch_result) || length(pitch_result) == 0) {
+      for (var in all_vars) {
+        row_data[[paste0(var, "_predicted")]] <- NA_character_
+        row_data[[paste0(var, "_confidence")]] <- NA_real_
+      }
+      formatted_list[[pitch_idx]] <- row_data
+      next
+    }
     
     for (var in names(pitch_result)) {
       row_data[[paste0(var, "_predicted")]] <- pitch_result[[var]]$top_level
@@ -236,6 +316,11 @@ format_inference_results_wide <- function(inference_results) {
     }
     
     formatted_list[[pitch_idx]] <- row_data
+  }
+  
+  # Handle empty results
+  if (length(formatted_list) == 0) {
+    return(data.frame(pitch_id = integer()))
   }
   
   result_df <- bind_rows(formatted_list)
@@ -290,7 +375,7 @@ explore_network_inference <- function(fitted_bn, example_evidence = list()) {
 # CONFIDENCE ASSESSMENT
 # ==============================================================================
 
-assess_inference_confidence <- function(inference_results, confidence_threshold = 0.4) {
+assess_inference_confidence <- function(inference_results, milb_data = NULL, confidence_threshold = 0.4) {
   # Assess confidence in inferences across all pitches
   # Flag low-confidence predictions for manual review or alternative methods
   
@@ -300,6 +385,11 @@ assess_inference_confidence <- function(inference_results, confidence_threshold 
   
   for (pitch_idx in seq_along(inference_results)) {
     pitch_result <- inference_results[[pitch_idx]]
+    
+    # Skip if no results
+    if (is.null(pitch_result) || length(pitch_result) == 0) {
+      next
+    }
     
     for (var in names(pitch_result)) {
       conf <- pitch_result[[var]]$top_probability
@@ -312,6 +402,18 @@ assess_inference_confidence <- function(inference_results, confidence_threshold 
         confidence_flag = ifelse(conf < confidence_threshold, "LOW", "OK")
       ))
     }
+  }
+  
+  # Handle empty results
+  if (nrow(confidence_summary) == 0) {
+    cat("No inference results to assess confidence for.\n")
+    return(data.frame(
+      pitch_id = integer(),
+      variable = character(),
+      top_prediction = character(),
+      confidence = numeric(),
+      confidence_flag = character()
+    ))
   }
   
   # Summary statistics
