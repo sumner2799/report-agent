@@ -787,8 +787,8 @@ calculate_batter_profile <- function(batter_data) {
     hh_la = round(mean(batter_data$launch_angle[batter_data$launch_speed >= 95], na.rm = TRUE), 1),
     oppo_fb_pct = round(100*(sum(batter_data$bb_type == "fly_ball" & batter_data$bip_dir == "oppo",na.rm = T)/sum(batter_data$bb_type == "fly_ball",na.rm = T)),1),
     oppo_fb_ev = round(mean(batter_data$launch_speed[batter_data$bb_type == "fly_ball" & batter_data$bip_dir == "oppo"],na.rm = T),1),
-    high_aa_pct = round(100 * sum(batter_data$attack_angle >= 14 & !month(batter_data$game_date) %in% c(6,7), na.rm = TRUE) / 
-                         sum(!is.na(batter_data$attack_angle) & !month(batter_data$game_date) %in% c(6,7)), 1)
+    high_aa_pct = round(100 * sum(batter_data$attack_angle >= 14 & !month(batter_data$game_date) %in% c(6,7,8,9), na.rm = TRUE) / 
+                         sum(!is.na(batter_data$attack_angle) & !month(batter_data$game_date) %in% c(6,7,8,9)), 1)
   )
   
   return(metrics)

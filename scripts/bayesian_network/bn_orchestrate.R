@@ -145,6 +145,15 @@ learn_parameters <- function(training_data, network_config) {
   network_path <- file.path(CONFIG$output_dir, "fitted_network.rds")
   export_network(fitted_bn, network_path)
   
+  # Also save training data and discretization scheme for later inference
+  saveRDS(training_data, file.path(CONFIG$output_dir, "training_data.rds"))
+  saveRDS(network_config$discretization_scheme, file.path(CONFIG$output_dir, "discretization_scheme.rds"))
+  
+  cat("\n✓ Network components saved:\n")
+  cat("  - fitted_network.rds\n")
+  cat("  - training_data.rds (for factor levels)\n")
+  cat("  - discretization_scheme.rds (for binning)\n")
+  
   return(fitted_bn)
 }
 
@@ -160,19 +169,25 @@ apply_to_milb <- function(fitted_bn, network_config) {
     discretization_scheme = network_config$discretization_scheme
   )
   
-  # Run inference
+  # Run inference (without CSV export by default)
   imputation_results <- apply_network_to_milb(
     fitted_bn,
     milb_data,
-    output_dir = CONFIG$output_dir
+    output_dir = CONFIG$output_dir,
+    export_predictions = FALSE  # Don't create CSVs
   )
   
-  # Create audit trail
-  audit_trail <- create_audit_trail(
-    milb_data,
-    imputation_results$predictions_wide,
-    output_path = file.path(CONFIG$output_dir, "audit_trail.csv")
-  )
+  # Create audit trail only if predictions were exported
+  audit_trail <- NULL
+  if (!is.null(imputation_results$predictions_wide)) {
+    audit_trail <- create_audit_trail(
+      milb_data,
+      imputation_results$predictions_wide,
+      output_path = file.path(CONFIG$output_dir, "audit_trail.csv")
+    )
+  } else {
+    cat("\nSkipping audit trail (export_predictions=FALSE)\n")
+  }
   
   return(list(
     results = imputation_results,

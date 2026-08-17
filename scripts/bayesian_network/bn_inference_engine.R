@@ -231,13 +231,14 @@ infer_biomechanics_batch <- function(
 # ==============================================================================
 
 format_inference_results_long <- function(inference_results, milb_data = NULL) {
-  # Convert list of inference results to long-format data frame
+  # Convert list of inference results to long-format data frame (OPTIMIZED)
   # One row per pitch-variable combination
   #
   # Returns:
   #   Data frame with columns:
   #     pitch_id, variable, level, probability
   
+  # Use data.table for faster operations
   formatted_list <- list()
   
   for (pitch_idx in seq_along(inference_results)) {
@@ -270,14 +271,15 @@ format_inference_results_long <- function(inference_results, milb_data = NULL) {
     ))
   }
   
-  result_df <- bind_rows(formatted_list) %>%
+  # Use rbindlist for faster binding (data.table function)
+  result_df <- rbindlist(formatted_list) %>%
     select(pitch_id, variable, level, probability)
   
   return(result_df)
 }
 
 format_inference_results_wide <- function(inference_results, milb_data = NULL) {
-  # Convert list of inference results to wide-format data frame
+  # Convert list of inference results to wide-format data frame (OPTIMIZED)
   # One row per pitch, columns for each variable's top prediction + confidence
   #
   # Returns:
@@ -298,7 +300,7 @@ format_inference_results_wide <- function(inference_results, milb_data = NULL) {
   for (pitch_idx in seq_along(inference_results)) {
     pitch_result <- inference_results[[pitch_idx]]
     
-    row_data <- data.frame(pitch_id = pitch_idx)
+    row_data <- list(pitch_id = pitch_idx)
     
     # If no results for this pitch, create row with NAs for all variables
     if (is.null(pitch_result) || length(pitch_result) == 0) {
@@ -306,7 +308,7 @@ format_inference_results_wide <- function(inference_results, milb_data = NULL) {
         row_data[[paste0(var, "_predicted")]] <- NA_character_
         row_data[[paste0(var, "_confidence")]] <- NA_real_
       }
-      formatted_list[[pitch_idx]] <- row_data
+      formatted_list[[pitch_idx]] <- as.data.frame(row_data, stringsAsFactors = FALSE)
       next
     }
     
@@ -315,7 +317,7 @@ format_inference_results_wide <- function(inference_results, milb_data = NULL) {
       row_data[[paste0(var, "_confidence")]] <- pitch_result[[var]]$top_probability
     }
     
-    formatted_list[[pitch_idx]] <- row_data
+    formatted_list[[pitch_idx]] <- as.data.frame(row_data, stringsAsFactors = FALSE)
   }
   
   # Handle empty results
@@ -323,7 +325,8 @@ format_inference_results_wide <- function(inference_results, milb_data = NULL) {
     return(data.frame(pitch_id = integer()))
   }
   
-  result_df <- bind_rows(formatted_list)
+  # Use rbindlist for faster binding (data.table function)
+  result_df <- rbindlist(formatted_list, fill = TRUE)
   return(result_df)
 }
 
@@ -376,12 +379,13 @@ explore_network_inference <- function(fitted_bn, example_evidence = list()) {
 # ==============================================================================
 
 assess_inference_confidence <- function(inference_results, milb_data = NULL, confidence_threshold = 0.4) {
-  # Assess confidence in inferences across all pitches
+  # Assess confidence in inferences across all pitches (OPTIMIZED)
   # Flag low-confidence predictions for manual review or alternative methods
   
   cat("\n=== Inference Confidence Assessment ===\n")
   
-  confidence_summary <- data.frame()
+  # Build list instead of rbind loop (much faster)
+  confidence_list <- list()
   
   for (pitch_idx in seq_along(inference_results)) {
     pitch_result <- inference_results[[pitch_idx]]
@@ -394,18 +398,18 @@ assess_inference_confidence <- function(inference_results, milb_data = NULL, con
     for (var in names(pitch_result)) {
       conf <- pitch_result[[var]]$top_probability
       
-      confidence_summary <- rbind(confidence_summary, data.frame(
+      confidence_list[[paste(pitch_idx, var, sep = "_")]] <- list(
         pitch_id = pitch_idx,
         variable = var,
         top_prediction = pitch_result[[var]]$top_level,
         confidence = conf,
         confidence_flag = ifelse(conf < confidence_threshold, "LOW", "OK")
-      ))
+      )
     }
   }
   
   # Handle empty results
-  if (nrow(confidence_summary) == 0) {
+  if (length(confidence_list) == 0) {
     cat("No inference results to assess confidence for.\n")
     return(data.frame(
       pitch_id = integer(),
@@ -415,6 +419,9 @@ assess_inference_confidence <- function(inference_results, milb_data = NULL, con
       confidence_flag = character()
     ))
   }
+  
+  # Convert list to data frame using rbindlist (faster than rbind)
+  confidence_summary <- rbindlist(confidence_list) %>% as.data.frame()
   
   # Summary statistics
   cat("\nConfidence Distribution:\n")

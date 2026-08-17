@@ -291,10 +291,12 @@ prepare_milb_for_inference <- function(
 apply_network_to_milb <- function(
   fitted_bn,
   milb_data,
-  output_dir = "/Users/andrewsumner/Documents/Github/report-agent/data/processed/bayesian_imputation"
+  output_dir = "/Users/andrewsumner/Documents/Github/report-agent/data/processed/bayesian_imputation",
+  export_predictions = FALSE  # Set to TRUE only if you need CSV exports
 ) {
-  # Master function to run inference on all MiLB pitches
-  # Saves results with audit trail for validation
+  # Master function to run inference on MiLB pitches
+  # By default, just returns predictions (doesn't export CSVs)
+  # Set export_predictions=TRUE to save CSV files
   
   source("/Users/andrewsumner/Documents/Github/report-agent/scripts/bayesian_network/bn_inference_engine.R")
   
@@ -316,25 +318,33 @@ apply_network_to_milb <- function(
     verbose = TRUE
   )
   
-  # Format results (pass milb_data for pitch_id and metadata)
-  cat("\nFormatting results...\n")
-  results_long <- format_inference_results_long(inference_results, milb_data)
-  results_wide <- format_inference_results_wide(inference_results, milb_data)
+  # Only format if exporting
+  results_long <- NULL
+  results_wide <- NULL
+  confidence_summary <- NULL
   
-  # Assess confidence
-  cat("\nAssessing inference confidence...\n")
-  confidence_summary <- assess_inference_confidence(inference_results, milb_data, confidence_threshold = 0.4)
-  
-  # Save outputs
-  cat("\nSaving results...\n")
-  fwrite(results_long, file.path(output_dir, "biomech_predictions_long.csv"))
-  fwrite(results_wide, file.path(output_dir, "biomech_predictions_wide.csv"))
-  fwrite(confidence_summary, file.path(output_dir, "inference_confidence.csv"))
-  
-  cat("\n✓ Results saved to:", output_dir, "\n")
-  cat("  - biomech_predictions_long.csv (probabilities for each level)\n")
-  cat("  - biomech_predictions_wide.csv (top predictions + confidence)\n")
-  cat("  - inference_confidence.csv (confidence assessment)\n")
+  if (export_predictions) {
+    cat("\nFormatting results...\n")
+    results_long <- format_inference_results_long(inference_results, milb_data)
+    results_wide <- format_inference_results_wide(inference_results, milb_data)
+    
+    cat("\nAssessing inference confidence...\n")
+    confidence_summary <- assess_inference_confidence(inference_results, milb_data, confidence_threshold = 0.4)
+    
+    # Save outputs
+    cat("\nSaving results...\n")
+    fwrite(results_long, file.path(output_dir, "biomech_predictions_long.csv"))
+    fwrite(results_wide, file.path(output_dir, "biomech_predictions_wide.csv"))
+    fwrite(confidence_summary, file.path(output_dir, "inference_confidence.csv"))
+    
+    cat("\n✓ Results saved to:", output_dir, "\n")
+    cat("  - biomech_predictions_long.csv (probabilities for each level)\n")
+    cat("  - biomech_predictions_wide.csv (top predictions + confidence)\n")
+    cat("  - inference_confidence.csv (confidence assessment)\n")
+  } else {
+    cat("\nSkipping CSV export (export_predictions=FALSE)\n")
+    cat("Predictions can be accessed via returned list\n")
+  }
   
   return(list(
     predictions_long = results_long,
